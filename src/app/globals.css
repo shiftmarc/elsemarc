@@ -7,6 +7,7 @@
    2. Themes             .theme-ink / .theme-paper map the palette to roles
    3. Tailwind tokens    fonts, type scale, spacing, motion
    4. Base styles
+   5. Motion             scroll reveals and hero entrances, reduced-motion aware
    ========================================================================== */
 
 /* 1. Raw palette ---------------------------------------------------------- */
@@ -78,6 +79,11 @@
   --color-vermilion: var(--palette-vermilion-500);
   --color-moss: var(--palette-moss-700);
 
+  /* Demonstration concept identities. Set --demo-* inline on a preview root. */
+  --color-demo-bg: var(--demo-bg);
+  --color-demo-fg: var(--demo-fg);
+  --color-demo-accent: var(--demo-accent);
+
   /* Typefaces (variables are set by next/font in the root layout) */
   --font-display: var(--font-newsreader), "Times New Roman", serif;
   --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
@@ -134,6 +140,14 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
+    /* Keeps anchor targets clear of the sticky header (h-16 / md:h-20). */
+    scroll-padding-top: 4rem;
+  }
+
+  @media (min-width: 48rem) {
+    html {
+      scroll-padding-top: 5rem;
+    }
   }
 
   body {
@@ -186,6 +200,68 @@
 
   .hairline {
     border-color: var(--line);
+  }
+}
+
+/* 5. Motion --------------------------------------------------------------- */
+/* Everything here is opt-in: nothing moves unless the visitor allows motion,
+   and nothing depends on JavaScript to become visible. */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    translate: 0 1.25rem;
+  }
+}
+
+@keyframes draw-x {
+  from {
+    scale: 0 1;
+  }
+}
+
+@keyframes draw-y {
+  from {
+    scale: 1 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 0.35em;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Scroll-linked entrance. Browsers without scroll timelines simply show the content. */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+
+  /* One-off load animations for the hero. Stagger with --delay. */
+  .animate-rise {
+    animation: rise 1100ms var(--ease-out-expo) both;
+    animation-delay: var(--delay, 0ms);
+  }
+
+  .animate-draw-x {
+    transform-origin: left;
+    animation: draw-x 1400ms var(--ease-in-out-quart) both;
+    animation-delay: var(--delay, 0ms);
+  }
+
+  .animate-draw-y {
+    transform-origin: top;
+    animation: draw-y 1400ms var(--ease-in-out-quart) both;
+    animation-delay: var(--delay, 0ms);
   }
 }
 

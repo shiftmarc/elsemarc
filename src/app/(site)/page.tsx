@@ -1,12 +1,23 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
+import { BeyondTheWebsite } from "@/components/home/beyond-the-website";
+import { FinalCta } from "@/components/home/final-cta";
+import { FunctionalityExplorer } from "@/components/home/functionality-explorer";
+import { Hero } from "@/components/home/hero";
+import { Imagination } from "@/components/home/imagination";
+import { PricingSummary } from "@/components/home/pricing-summary";
+import { Process } from "@/components/home/process";
+import { SelectedWebsites } from "@/components/home/selected-websites";
 
-// Homepage sections are built in stage 2.
 export default function HomePage() {
   return (
-    <PagePlaceholder
-      eyebrow="Home"
-      title="A beautiful website is just the beginning."
-      intro="We design exceptional websites. Then we make them do whatever your business needs."
-    />
+    <>
+      <Hero />
+      <SelectedWebsites />
+      <BeyondTheWebsite />
+      <FunctionalityExplorer />
+      <Imagination />
+      <PricingSummary />
+      <Process />
+      <FinalCta />
+    </>
   );
 }

@@ -43,6 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en-CA"
+      data-scroll-behavior="smooth"
       className={`${display.variable} ${sans.variable} ${mono.variable} theme-ink antialiased`}
     >
       <body className="flex min-h-dvh flex-col">{children}</body>
