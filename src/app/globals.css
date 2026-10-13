@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   elsemarc design system
+   --------------------------------------------------------------------------
+   1. Raw palette        fixed colour values, never used for meaning
+   2. Themes             .theme-ink / .theme-paper map the palette to roles
+   3. Tailwind tokens    fonts, type scale, spacing, motion
+   4. Base styles
+   ========================================================================== */
+
+/* 1. Raw palette ---------------------------------------------------------- */
+:root {
+  --palette-ink-950: #121211;
+  --palette-ink-900: #181816;
+  --palette-ink-800: #22221f;
+  --palette-ink-700: #33322e;
+  --palette-stone-500: #8f8a80;
+  --palette-stone-600: #67635b;
+  --palette-paper-50: #f4f1ea;
+  --palette-paper-100: #ebe6db;
+  --palette-paper-200: #ddd6c8;
+  --palette-vermilion-500: #e4502b;
+  --palette-vermilion-600: #c23d1c;
+  --palette-moss-400: #a7b08f;
+  --palette-moss-700: #46503a;
+}
+
+/* 2. Themes --------------------------------------------------------------- */
+/* Any element can switch theme; children inherit the roles. */
+:root,
+.theme-ink {
+  --surface: var(--palette-ink-900);
+  --surface-raised: var(--palette-ink-800);
+  --fg: var(--palette-paper-50);
+  --fg-muted: var(--palette-stone-500);
+  --line: color-mix(in oklab, var(--palette-paper-50) 14%, transparent);
+  --accent: var(--palette-vermilion-500);
+  --accent-fg: var(--palette-ink-950);
+  --accent-quiet: var(--palette-moss-400);
+  color-scheme: dark;
+}
+
+.theme-paper {
+  --surface: var(--palette-paper-50);
+  --surface-raised: var(--palette-paper-100);
+  --fg: var(--palette-ink-900);
+  --fg-muted: var(--palette-stone-600);
+  --line: color-mix(in oklab, var(--palette-ink-900) 16%, transparent);
+  --accent: var(--palette-vermilion-600);
+  --accent-fg: var(--palette-paper-50);
+  --accent-quiet: var(--palette-moss-700);
+  color-scheme: light;
+}
+
+.theme-ink,
+.theme-paper {
+  background-color: var(--surface);
+  color: var(--fg);
+}
+
+/* 3. Tailwind tokens ------------------------------------------------------ */
+@theme inline {
+  /* Semantic colours (follow the active theme) */
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-quiet: var(--accent-quiet);
+
+  /* Fixed colours (for art direction that ignores the theme) */
+  --color-ink: var(--palette-ink-900);
+  --color-ink-deep: var(--palette-ink-950);
+  --color-paper: var(--palette-paper-50);
+  --color-vermilion: var(--palette-vermilion-500);
+  --color-moss: var(--palette-moss-700);
+
+  /* Typefaces (variables are set by next/font in the root layout) */
+  --font-display: var(--font-newsreader), "Times New Roman", serif;
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@theme {
+  /* Fluid type scale. Display sizes are set in the serif, the rest in the sans. */
+  --text-display-xl: clamp(3.5rem, 1.25rem + 9.6vw, 11.5rem);
+  --text-display-xl--line-height: 0.9;
+  --text-display-xl--letter-spacing: -0.035em;
+
+  --text-display-lg: clamp(2.75rem, 1.1rem + 6.4vw, 7.5rem);
+  --text-display-lg--line-height: 0.94;
+  --text-display-lg--letter-spacing: -0.03em;
+
+  --text-display-md: clamp(2.125rem, 1.15rem + 3.6vw, 4.75rem);
+  --text-display-md--line-height: 1;
+  --text-display-md--letter-spacing: -0.022em;
+
+  --text-heading: clamp(1.5rem, 1.15rem + 1.3vw, 2.375rem);
+  --text-heading--line-height: 1.1;
+  --text-heading--letter-spacing: -0.015em;
+
+  --text-lede: clamp(1.125rem, 1rem + 0.55vw, 1.5rem);
+  --text-lede--line-height: 1.42;
+  --text-lede--letter-spacing: -0.005em;
+
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.5;
+
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.08em;
+
+  /* Layout rhythm. Tailwind's 4px spacing scale stays as the base unit. */
+  --spacing-gutter: clamp(1rem, 0.4rem + 3vw, 3rem);
+  --spacing-section: clamp(5rem, 2.5rem + 11vw, 12rem);
+  --container-site: 96rem;
+  --container-prose: 38rem;
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --default-transition-duration: 240ms;
+  --default-transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 4. Base ----------------------------------------------------------------- */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--surface);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-feature-settings: "ss01", "kern";
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 1px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  /* Serif display text. Optical sizing keeps large settings crisp. */
+  .type-display {
+    font-family: var(--font-display);
+    font-weight: 380;
+    font-optical-sizing: auto;
+  }
+
+  /* Small uppercase monospaced labels: indices, eyebrows, metadata. */
+  .type-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+  }
+
+  .hairline {
+    border-color: var(--line);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
