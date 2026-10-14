@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Concept } from "@/content/concepts";
+import { cormorant, jost } from "@/components/demos/restaurant/fonts";
 
 /**
  * Typographic previews of each demonstration concept's homepage.
@@ -41,12 +42,15 @@ export const conceptNameClass: Record<string, string> = {
 
 type PreviewProps = { name: string };
 
-/* 01 — The Restaurant: nocturnal, italic serif, a plate drawn in rings. */
+/* 01 — The Restaurant: nocturnal, italic serif, a plate drawn in rings.
+   Set in Ardoise's own Cormorant and Jost so it matches the full demo. */
 function RestaurantPreview({ name }: PreviewProps) {
   return (
-    <div className="absolute inset-0 flex flex-col px-[5cqw] py-[3.6cqw]">
+    <div
+      className={`${cormorant.variable} ${jost.variable} absolute inset-0 flex flex-col px-[5cqw] py-[3.6cqw] font-ardoise-sans`}
+    >
       <div className="flex items-center justify-between text-[1.35cqw] tracking-[0.12em] uppercase">
-        <span className="type-display text-[2.2cqw] tracking-normal normal-case italic">
+        <span className="font-ardoise-display text-[2.2cqw] tracking-normal normal-case italic">
           {name}
         </span>
         <span className="hidden gap-[3cqw] opacity-75 @[20rem]:flex">
@@ -62,10 +66,10 @@ function RestaurantPreview({ name }: PreviewProps) {
 
       <div className="relative flex flex-1 items-center">
         <div className="relative z-10">
-          <p className="type-label text-[1.25cqw] text-demo-accent">
+          <p className="text-[1.15cqw] tracking-[0.28em] text-demo-accent uppercase">
             Wood fire · Seasonal · Natural wine
           </p>
-          <p className="type-display mt-[1.6cqw] text-[15cqw] leading-[0.82] tracking-[-0.04em] italic">
+          <p className="mt-[1.6cqw] font-ardoise-display text-[15cqw] leading-[0.82] font-light tracking-[-0.045em] italic">
             {name}
           </p>
           <p className="mt-[2.4cqw] max-w-[34cqw] text-[1.7cqw] leading-[1.45] opacity-80">

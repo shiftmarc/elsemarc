@@ -14,6 +14,8 @@ export type Concept = {
   direction: string;
   /** Identity colours, used by previews and swatches regardless of site theme. */
   palette: { bg: string; fg: string; accent: string };
+  /** Full-screen demo homepage, once it has been built. */
+  demoHref?: string;
 };
 
 export const concepts: Concept[] = [
@@ -25,6 +27,7 @@ export const concepts: Concept[] = [
     demoName: "Ardoise",
     direction: "Warm, nocturnal and unhurried. Reservations front and centre.",
     palette: { bg: "#2a1714", fg: "#f0e3cc", accent: "#d4a457" },
+    demoHref: "/demo/restaurant",
   },
   {
     slug: "studio",

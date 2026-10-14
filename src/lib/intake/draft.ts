@@ -2,11 +2,13 @@
 
 import { useSyncExternalStore } from "react";
 import { isFunctionId, type FunctionId } from "@/content/capabilities";
+import { getConcept } from "@/content/concepts";
 
 /**
  * The visitor's in-progress project brief, kept in this browser until the
  * intake is submitted. The homepage explorer and imagination section write
- * to it; the intake at /start reads it to prefill the custom project inquiry.
+ * to it, and a demo's "Choose this design" sets `design`; the intake at /start
+ * reads it to prefill the project inquiry.
  *
  * Later, an idea analysis (scope notes, a preliminary estimate) can be added
  * as a server-side step that reads `idea` and `functions` from the submitted
@@ -17,11 +19,13 @@ export type IntakeDraft = {
   idea: string;
   /** Selections from the functionality explorer, in the order chosen. */
   functions: FunctionId[];
+  /** Slug of the chosen demonstration concept, or "" for none. */
+  design: string;
 };
 
 const STORAGE_KEY = "intake-draft:v1";
 const MAX_IDEA_LENGTH = 2000;
-const EMPTY: IntakeDraft = { idea: "", functions: [] };
+const EMPTY: IntakeDraft = { idea: "", functions: [], design: "" };
 
 let current: IntakeDraft | null = null;
 const listeners = new Set<() => void>();
@@ -31,10 +35,11 @@ function parse(raw: string | null): IntakeDraft {
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return EMPTY;
-    const { idea, functions } = value as Record<string, unknown>;
+    const { idea, functions, design } = value as Record<string, unknown>;
     return {
       idea: typeof idea === "string" ? idea.slice(0, MAX_IDEA_LENGTH) : "",
       functions: Array.isArray(functions) ? functions.filter(isFunctionId) : [],
+      design: typeof design === "string" && getConcept(design) ? design : "",
     };
   } catch {
     return EMPTY;
@@ -93,6 +98,11 @@ export const intakeDraft = {
   },
   clearFunctions() {
     write({ ...read(), functions: [] });
+  },
+  /** Ignores slugs that are not a known concept. */
+  setDesign(slug: string) {
+    if (slug && !getConcept(slug)) return;
+    write({ ...read(), design: slug });
   },
   maxIdeaLength: MAX_IDEA_LENGTH,
 };
