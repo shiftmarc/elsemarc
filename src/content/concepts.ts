@@ -47,6 +47,7 @@ export const concepts: Concept[] = [
     demoName: "Maison Argile",
     direction: "Soft, tactile and quiet, so the objects can speak.",
     palette: { bg: "#dcc7b1", fg: "#3a2a20", accent: "#8c4a2c" },
+    demoHref: "/demo/boutique",
   },
   {
     slug: "professional",

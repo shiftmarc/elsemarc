@@ -2,6 +2,9 @@ import type { CSSProperties } from "react";
 import type { Concept } from "@/content/concepts";
 import { cormorant, jost } from "@/components/demos/restaurant/fonts";
 import { archivo, geistMono } from "@/components/demos/studio/fonts";
+import { figtree, fraunces } from "@/components/demos/boutique/fonts";
+import { Vessel } from "@/components/demos/boutique/vessel";
+import type { Shape } from "@/components/demos/boutique/content";
 
 /**
  * Typographic previews of each demonstration concept's homepage.
@@ -142,45 +145,49 @@ function StudioPreview({ name }: PreviewProps) {
   );
 }
 
-/* 03 — The Boutique: centred and soft, objects as simple sculpted forms. */
+/* 03 — The Boutique: centred and soft, objects in arched niches.
+   Set in Maison Argile's own Fraunces and Figtree, with the same drawn objects. */
 function BoutiquePreview({ name }: PreviewProps) {
-  const objects = [
-    { title: "Vase no. 3", price: "$68", shape: "rounded-t-full h-[78%] w-[52%]" },
-    { title: "Low bowl", price: "$42", shape: "rounded-b-full h-[34%] w-[74%]" },
-    { title: "Carafe", price: "$54", shape: "rounded-[40%_40%_12%_12%] h-[64%] w-[36%]" },
+  const objects: { title: string; price: string; shape: Shape; glaze: string; niche: string }[] = [
+    { title: "Vase no. 3", price: "$68", shape: "vase", glaze: "#e8dac6", niche: "88%" },
+    { title: "Low bowl", price: "$42", shape: "bowl", glaze: "#b7b0a4", niche: "100%" },
+    { title: "Carafe", price: "$54", shape: "carafe", glaze: "#f2ece2", niche: "88%" },
   ];
   return (
-    <div className="absolute inset-0 flex flex-col px-[4.4cqw] py-[3cqw]">
-      <div className="grid grid-cols-3 items-center text-[1.3cqw] tracking-[0.14em] uppercase">
+    <div
+      className={`${fraunces.variable} ${figtree.variable} absolute inset-0 flex flex-col px-[4.4cqw] py-[3cqw] font-argile-sans`}
+    >
+      <div className="grid grid-cols-3 items-center text-[1.3cqw]">
         <span className="flex gap-[2.4cqw]">
           <span>Shop</span>
-          <span className="opacity-60">Journal</span>
+          <span className="opacity-70">The making</span>
         </span>
-        <span className="type-display text-center text-[2.6cqw] tracking-[0.02em] normal-case">
-          {name}
-        </span>
+        <span className="argile-display text-center text-[2.6cqw]">{name}</span>
         <span className="text-right">Bag (0)</span>
       </div>
 
-      <p className="type-display mt-[3.4cqw] text-center text-[5.4cqw] leading-none tracking-[-0.02em] italic">
+      <p className="mt-[3cqw] text-center text-[1.1cqw] tracking-[0.2em] uppercase opacity-80">
+        Autumn collection · Stoneware &amp; linen
+      </p>
+      <p className="argile-display mt-[1cqw] text-center text-[6cqw] leading-none italic">
         Objects made slowly.
       </p>
-      <p className="mt-[1.2cqw] text-center text-[1.3cqw] tracking-[0.14em] uppercase opacity-70">
-        Autumn collection · Stoneware
-      </p>
 
-      <ul className="mt-[3.2cqw] grid flex-1 grid-cols-3 gap-[2cqw]">
+      <ul className="mx-auto mt-[3cqw] grid w-[80%] flex-1 grid-cols-3 items-end gap-[2.4cqw]">
         {objects.map((object, index) => (
-          <li key={object.title} className="flex flex-col">
+          <li key={object.title} className="flex h-full flex-col justify-end">
             <div
-              className="relative flex flex-1 items-end justify-center"
-              style={{ backgroundColor: `color-mix(in oklab, var(--demo-bg) ${88 - index * 6}%, white)` }}
+              className="flex items-end justify-center rounded-t-full px-[14%] pb-[10%]"
+              style={{
+                height: object.niche,
+                backgroundColor: `color-mix(in oklab, var(--demo-bg) ${index === 1 ? 38 : 66}%, white)`,
+              }}
             >
-              <div className={`mb-[12%] bg-demo-accent ${object.shape}`} style={{ opacity: 0.55 + index * 0.15 }} />
+              <Vessel shape={object.shape} color={object.glaze} className="w-[78%]" />
             </div>
-            <div className="mt-[1cqw] flex justify-between text-[1.35cqw]">
-              <span>{object.title}</span>
-              <span className="opacity-70">{object.price}</span>
+            <div className="mt-[0.8cqw] flex justify-between text-[1.25cqw]">
+              <span className="argile-display text-[1.45cqw]">{object.title}</span>
+              <span className="opacity-80">{object.price}</span>
             </div>
           </li>
         ))}

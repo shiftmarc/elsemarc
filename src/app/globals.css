@@ -94,6 +94,8 @@
   --font-ardoise-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
   --font-field-sans: var(--font-archivo), "Helvetica Neue", Arial, sans-serif;
   --font-field-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-argile-display: var(--font-fraunces), Georgia, serif;
+  --font-argile-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme {
@@ -193,6 +195,15 @@
     font-family: var(--font-display);
     font-weight: 380;
     font-optical-sizing: auto;
+  }
+
+  /* Maison Argile's display serif, with Fraunces' soft, rounded terminals. */
+  .argile-display {
+    font-family: var(--font-fraunces), Georgia, serif;
+    font-weight: 340;
+    font-optical-sizing: auto;
+    font-variation-settings: "SOFT" 100;
+    letter-spacing: -0.015em;
   }
 
   /* Small uppercase monospaced labels: indices, eyebrows, metadata. */
