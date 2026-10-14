@@ -1,11 +1,11 @@
-import type { Capability } from "@/content/capabilities";
+import type { SpecimenId } from "@/content/capabilities";
 
 /**
  * Small illustrative interfaces for each capability, drawn in the site's own
  * tokens. They show the shape of a feature, not a real product, and are
  * labelled as illustrations wherever they appear.
  */
-export function CapabilitySpecimen({ id }: { id: Capability["id"] }) {
+export function CapabilitySpecimen({ id }: { id: SpecimenId }) {
   const Specimen = specimens[id];
   return (
     <div className="flex aspect-[5/4] flex-col border hairline bg-surface-raised p-5 sm:p-7">
@@ -20,13 +20,16 @@ export function CapabilitySpecimen({ id }: { id: Capability["id"] }) {
   );
 }
 
-const labels: Record<Capability["id"], string> = {
+const labels: Record<SpecimenId, string> = {
   reservations: "Table booking",
   payments: "Checkout",
   appointments: "Scheduling",
   portals: "Client area",
   automations: "Workflow",
   unknown: "Your idea",
+  dashboards: "Overview",
+  integrations: "Connections",
+  applications: "Your own tool",
 };
 
 function Reservations() {
@@ -183,11 +186,126 @@ function Unknown() {
   );
 }
 
-const specimens: Record<Capability["id"], () => React.ReactNode> = {
+function Dashboards() {
+  const week = [
+    ["M", 38],
+    ["T", 52],
+    ["W", 46],
+    ["T", 70],
+    ["F", 88],
+    ["S", 100],
+    ["S", 64],
+  ] as const;
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2 border-b hairline pb-4">
+        {[
+          ["Bookings", "42"],
+          ["New customers", "9"],
+          ["To follow up", "3"],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <p className="text-[0.6875rem] leading-tight text-fg-muted">{label}</p>
+            <p className="type-display mt-1 text-heading tabular-nums">{value}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex h-24 items-end gap-2">
+        {week.map(([day, height], index) => (
+          <div key={index} className="flex h-full flex-1 flex-col justify-end gap-1.5">
+            <span
+              className={index === 5 ? "bg-accent" : "bg-fg/15"}
+              style={{ height: `${height}%` }}
+            />
+            <span className="text-center text-[0.625rem] text-fg-muted">{day}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-small text-fg-muted">This week, sample figures.</p>
+    </div>
+  );
+}
+
+function Integrations() {
+  const tools = ["Calendar", "Accounting", "Newsletter", "Inventory"];
+  return (
+    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className="grid aspect-square place-items-center bg-fg text-center text-small text-surface">
+        <span>
+          Your
+          <br />
+          website
+        </span>
+      </div>
+      <ul aria-hidden="true" className="flex flex-col gap-[1.375rem]">
+        {tools.map((tool, index) => (
+          <li key={tool} className="flex items-center gap-1">
+            <span className={`h-px w-8 sm:w-12 ${index === 1 ? "bg-accent" : "bg-line"}`} />
+            <span className={`size-1.5 ${index === 1 ? "bg-accent" : "bg-fg/30"}`} />
+          </li>
+        ))}
+      </ul>
+      <ul className="space-y-2 text-small">
+        {tools.map((tool, index) => (
+          <li
+            key={tool}
+            className={`px-3 py-2 ${index === 1 ? "bg-accent text-accent-fg" : "border hairline"}`}
+          >
+            {tool}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Applications() {
+  const jobs = [
+    ["Kitchen refit", "Quoted", false],
+    ["Garden studio", "In progress", true],
+    ["Bathroom", "Booked", false],
+    ["Deck repair", "Invoiced", false],
+  ] as const;
+  return (
+    <div className="grid grid-cols-[4.5rem_1fr] gap-4">
+      <ul className="space-y-2 border-r hairline pr-3 text-[0.6875rem] leading-tight text-fg-muted">
+        <li className="text-fg">Jobs</li>
+        <li>Quotes</li>
+        <li>Clients</li>
+        <li>Team</li>
+      </ul>
+      <div>
+        <p className="type-label flex justify-between text-fg-muted">
+          <span>Jobs</span>
+          <span>+ New</span>
+        </p>
+        <ul className="mt-3 text-small">
+          {jobs.map(([job, status, active]) => (
+            <li
+              key={job}
+              className={`flex justify-between gap-3 border-t hairline py-2.5 ${active ? "text-fg" : ""}`}
+            >
+              <span className="flex items-center gap-2">
+                <span aria-hidden="true" className={`size-1.5 ${active ? "bg-accent" : "bg-fg/25"}`} />
+                {job}
+              </span>
+              <span className="text-fg-muted">{status}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+const specimens: Record<SpecimenId, () => React.ReactNode> = {
   reservations: Reservations,
   payments: Payments,
   appointments: Appointments,
   portals: Portals,
   automations: Automations,
   unknown: Unknown,
+  dashboards: Dashboards,
+  integrations: Integrations,
+  applications: Applications,
 };
