@@ -96,6 +96,8 @@
   --font-field-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-argile-display: var(--font-fraunces), Georgia, serif;
   --font-argile-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-halden-sans: var(--font-hanken), "Helvetica Neue", Arial, sans-serif;
+  --font-halden-serif: var(--font-source-serif), Georgia, serif;
 }
 
 @theme {

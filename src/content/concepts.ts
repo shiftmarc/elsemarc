@@ -57,6 +57,7 @@ export const concepts: Concept[] = [
     demoName: "Halden Advisory",
     direction: "Measured and trustworthy, with a clear path to booking.",
     palette: { bg: "#11222a", fg: "#e7ecea", accent: "#9fc4b5" },
+    demoHref: "/demo/professional",
   },
 ];
 

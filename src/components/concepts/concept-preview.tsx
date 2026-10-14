@@ -5,6 +5,7 @@ import { archivo, geistMono } from "@/components/demos/studio/fonts";
 import { figtree, fraunces } from "@/components/demos/boutique/fonts";
 import { Vessel } from "@/components/demos/boutique/vessel";
 import type { Shape } from "@/components/demos/boutique/content";
+import { hanken, sourceSerif } from "@/components/demos/professional/fonts";
 
 /**
  * Typographic previews of each demonstration concept's homepage.
@@ -196,52 +197,74 @@ function BoutiquePreview({ name }: PreviewProps) {
   );
 }
 
-/* 04 — The Professional: calm, structured, one clear action. */
+/* 04 — The Professional: calm, ruled, one clear action and open times.
+   Set in Halden Advisory's own Hanken Grotesk and Source Serif 4. */
 function ProfessionalPreview({ name }: PreviewProps) {
   const [first, ...rest] = name.split(" ");
   return (
-    <div className="absolute inset-0 flex flex-col px-[5cqw] py-[3.4cqw]">
-      <div className="flex items-center justify-between text-[1.4cqw]">
-        <span className="font-semibold tracking-[-0.01em]">
-          {first} <span className="font-normal opacity-60">{rest.join(" ")}</span>
+    <div
+      className={`${hanken.variable} ${sourceSerif.variable} absolute inset-0 flex flex-col px-[5cqw] py-[3.4cqw] font-halden-sans`}
+    >
+      <div className="flex items-center justify-between border-b border-demo-fg/15 pb-[2cqw] text-[1.4cqw]">
+        <span className="tracking-[-0.02em]">
+          <span className="font-semibold">{first}</span> <span className="opacity-60">{rest.join(" ")}</span>
         </span>
-        <span className="hidden gap-[3cqw] opacity-70 @[20rem]:flex">
+        <span className="hidden gap-[3cqw] opacity-75 @[20rem]:flex">
           <span>Services</span>
           <span>Approach</span>
           <span>About</span>
         </span>
-        <span className="bg-demo-accent px-[1.8cqw] py-[0.9cqw] text-demo-bg">
+        <span className="bg-demo-accent px-[1.8cqw] py-[0.9cqw] font-medium text-demo-bg">
           Book a consultation
         </span>
       </div>
 
-      <div className="mt-[6cqw] grid grid-cols-12 gap-x-[2cqw]">
-        <p className="col-span-2 pt-[1cqw] text-[1.2cqw] tracking-[0.1em] text-demo-accent uppercase">
-          Advisory
+      <div className="mt-[4.4cqw] grid grid-cols-12 gap-x-[2cqw]">
+        <p className="col-span-2 pt-[0.8cqw] font-halden-serif text-[1.3cqw] text-demo-accent italic">
+          Est. in Kingston
         </p>
-        <div className="col-span-9">
-          <p className="text-[6.2cqw] leading-[1.02] font-normal tracking-[-0.04em]">
-            Clear financial advice for independent businesses.
+        <div className="col-span-6">
+          <p className="text-[4.6cqw] leading-[1.03] tracking-[-0.045em]">
+            Clear financial thinking for independent businesses.
           </p>
-          <p className="mt-[2.4cqw] flex items-center gap-[2.4cqw] text-[1.45cqw]">
-            <span className="opacity-60">Next available consultation · Tuesday, 10:00</span>
-            <span className="border-b border-demo-accent pb-[0.2cqw] text-demo-accent">
-              Choose a time →
+          <p className="mt-[2.2cqw] max-w-[40cqw] text-[1.45cqw] leading-[1.5] opacity-70">
+            A small practice that helps owners understand their own numbers and plan the year ahead.
+          </p>
+          <p className="mt-[2.4cqw] flex items-center gap-[2cqw] text-[1.35cqw]">
+            <span className="bg-demo-accent px-[1.8cqw] py-[1cqw] font-medium text-demo-bg">
+              Book a consultation →
             </span>
+            <span className="border-b border-demo-fg/30 pb-[0.2cqw] opacity-85">See services and fees</span>
           </p>
+        </div>
+        <div className="col-span-4 self-start border border-demo-fg/15 text-[1.2cqw]">
+          <p className="border-b border-demo-fg/15 px-[1.4cqw] py-[1cqw] font-medium">
+            Open consultation times
+          </p>
+          {["Tuesday, 10:00", "Thursday, 9:00", "Thursday, 11:30"].map((slot) => (
+            <p
+              key={slot}
+              className="flex justify-between border-b border-demo-fg/10 px-[1.4cqw] py-[0.9cqw] last:border-b-0"
+            >
+              <span>{slot}</span>
+              <span className="text-demo-accent">→</span>
+            </p>
+          ))}
         </div>
       </div>
 
-      <ul className="mt-auto grid grid-cols-3 gap-x-[2cqw] text-[1.4cqw]">
+      <ul className="mt-auto grid grid-cols-3 gap-x-[2cqw] text-[1.35cqw]">
         {[
-          ["Bookkeeping review", "A clear picture of where you stand."],
-          ["Tax planning", "Fewer surprises at year end."],
-          ["Growth advisory", "Decisions made with real numbers."],
-        ].map(([title, detail], index) => (
-          <li key={title} className="border-t border-demo-fg/25 pt-[1.4cqw]">
-            <span className="text-demo-accent">0{index + 1}</span>
-            <p className="mt-[0.8cqw] font-medium">{title}</p>
-            <p className="mt-[0.4cqw] opacity-60">{detail}</p>
+          ["Bookkeeping review", "$420"],
+          ["Year-end planning", "$560"],
+          ["Growth sessions", "$300 / mo"],
+        ].map(([title, fee], index) => (
+          <li key={title} className="border-t border-demo-fg/25 pt-[1.2cqw]">
+            <span className="font-halden-serif text-demo-accent">0{index + 1}</span>
+            <p className="mt-[0.6cqw] flex justify-between">
+              <span className="font-medium">{title}</span>
+              <span className="opacity-65">{fee}</span>
+            </p>
           </li>
         ))}
       </ul>
