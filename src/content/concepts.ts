@@ -37,6 +37,7 @@ export const concepts: Concept[] = [
     demoName: "Field Office",
     direction: "Rigorous grid, heavy grotesk, work first and words second.",
     palette: { bg: "#e8e8e3", fg: "#111111", accent: "#2747e6" },
+    demoHref: "/demo/studio",
   },
   {
     slug: "boutique",

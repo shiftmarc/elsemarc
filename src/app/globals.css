@@ -92,6 +92,8 @@
   /* Demo typefaces. Their variables are only set on the demo's own route and preview. */
   --font-ardoise-display: var(--font-cormorant), Georgia, serif;
   --font-ardoise-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+  --font-field-sans: var(--font-archivo), "Helvetica Neue", Arial, sans-serif;
+  --font-field-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 @theme {

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { Concept } from "@/content/concepts";
 import { cormorant, jost } from "@/components/demos/restaurant/fonts";
+import { archivo, geistMono } from "@/components/demos/studio/fonts";
 
 /**
  * Typographic previews of each demonstration concept's homepage.
@@ -93,11 +94,14 @@ function RestaurantPreview({ name }: PreviewProps) {
   );
 }
 
-/* 02 — The Studio: strict grid, heavy uppercase grotesk, an index of work. */
+/* 02 — The Studio: strict grid, heavy uppercase grotesk, an index of work.
+   Set in Field Office's own Archivo and Geist Mono so it matches the full demo. */
 function StudioPreview({ name }: PreviewProps) {
   const [first, ...rest] = name.split(" ");
   return (
-    <div className="absolute inset-0 grid grid-cols-12 grid-rows-[auto_1fr_auto] gap-x-[1.6cqw] px-[3.6cqw] py-[3cqw] font-sans">
+    <div
+      className={`${archivo.variable} ${geistMono.variable} absolute inset-0 grid grid-cols-12 grid-rows-[auto_1fr_auto] gap-x-[1.6cqw] px-[3.6cqw] py-[3cqw] font-field-sans`}
+    >
       <div className="col-span-12 flex justify-between text-[1.3cqw] font-semibold tracking-[0.02em] uppercase">
         <span>{name}</span>
         <span className="flex gap-[2.4cqw]">
@@ -128,7 +132,7 @@ function StudioPreview({ name }: PreviewProps) {
           ["03", "Quarry Library", "Identity"],
         ].map(([index, title, kind]) => (
           <li key={index} className="flex gap-[1.2cqw]">
-            <span className="opacity-50">{index}</span>
+            <span className="font-field-mono opacity-50">{index}</span>
             <span className="font-semibold">{title}</span>
             <span className="ml-auto opacity-50">{kind}</span>
           </li>
