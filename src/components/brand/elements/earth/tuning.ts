@@ -1,21 +1,27 @@
 /**
- * Earth's knobs: a zen garden of fine, dark volcanic sand seen from above,
- * in low raking light. Distances in CSS px, times in seconds; heights in
+ * Earth's knobs: a zen garden of pale sand seen from above, in bright,
+ * low-angle daylight. Distances in CSS px, times in seconds; heights in
  * CSS px too (how far the sand rises or dips).
  */
 export const TUNING = {
   /** The disturbance field's cell size (the raked pattern and letters are drawn at full resolution). */
   sim: { cell: 1.25 },
 
-  /** The raked garden: straight lines, and rings around the stone. */
+  /** The sand (bone white to warm grey, linear-ish display values) and its brightest highlights. */
+  palette: {
+    sand: [0.84, 0.815, 0.765] as const,
+    high: [1, 0.985, 0.95] as const,
+  },
+
+  /** The raked garden: long lines, and rings around the stone. */
   garden: {
     /** Line spacing: a share of the screen's short side, within these limits. */
-    periodShare: 0.0105,
-    period: [6.5, 11] as const,
-    /** Half the ridge-to-groove depth, freshly raked. */
-    amp: 0.5,
+    periodShare: 0.021,
+    period: [12, 20] as const,
+    /** Half the ridge-to-groove depth, freshly raked (× line spacing, so lines look alike at any size). */
+    amp: 0.052,
     /** How much worn lines lose (0–1 of their depth). */
-    wornLoss: 0.7,
+    wornLoss: 0.5,
     /** Rings around the stone: how many, and the gap before the first (× stone radius, + 2 px). */
     rings: 4,
     ringGap: 0.55,
@@ -23,10 +29,10 @@ export const TUNING = {
 
   /** The wordmark pressed into the sand (× font size where noted). */
   word: {
-    depth: 0.026,
-    depthRange: [1.4, 3.2] as const,
+    depth: 0.03,
+    depthRange: [2, 4.2] as const,
     /** Sand pushed up around the letters. */
-    rim: 0.5,
+    rim: 0.8,
     /** Edge softness of the letters and of the rim (blur widths, × font size). */
     bevel: 0.011,
     bevelMin: 0.55,
@@ -36,25 +42,23 @@ export const TUNING = {
     stoneHeight: 0.07,
   },
 
-  /** Low sun from the top left. */
+  /** Bright daylight, low from the top left: sky fill in the shade, and the sun. */
   light: {
     dir: [-0.62, -0.58, 0.31] as const,
-    ambient: 0.2,
-    sun: 2.55,
+    ambient: 0.5,
+    sun: 1.35,
     /** How strongly slopes catch or lose the light. */
-    relief: 1.1,
-    /** Sand albedo relative to the page surface colour. */
-    sand: 1.45,
-    /** Cast shadows: how dark. */
-    shadow: 0.78,
-    vignette: 0.3,
+    relief: 1.0,
+    /** Cast shadows: how much of the sun they take away. */
+    shadow: 0.6,
+    vignette: 0.16,
   },
 
   /** Fine grains: size, bumpiness, and the share of glassy grains that glint. */
-  grain: { size: 0.72, relief: 0.12, glint: 0.007 },
+  grain: { size: 0.72, relief: 0.09, glint: 0.006 },
 
   /** Dragging rakes grooves: tines and their spacing (× line spacing), depth, and the sand heaped beside them. */
-  rake: { tines: 5, spacing: 1.7, depth: 2.6, berm: 1.6, step: 2 },
+  rake: { tines: 5, spacing: 1.05, depth: 3.2, berm: 1.8, step: 2 },
 
   /** A tap: a crater, with grains flying out. */
   crater: { radius: 15, depth: 3, rim: 1.0, grains: 32, size: [1.5, 3] as const, speed: [60, 190] as const, lift: [120, 270] as const },
@@ -105,7 +109,7 @@ export const TUNING = {
   },
 
   /** The invisible rake: lines per pass, speed, the sand heaped ahead of its tines, grains flicked per second. */
-  gardener: { lines: 7, speed: 70, heap: 0.75, flick: 5 },
+  gardener: { lines: 7, speed: 70, heap: 0.45, flick: 5 },
 
   /** The sent message: pressed in, held, then erased by the wind. */
   message: {
@@ -121,8 +125,9 @@ export const TUNING = {
   },
 
   render: {
-    maxPixelRatio: 2,
-    pixelBudget: 3.2e6,
+    /** Sand is soft: it doesn't need every device pixel. */
+    maxPixelRatio: 1.75,
+    pixelBudget: 2.5e6,
   },
 
   frame: { slowFrameMs: 26, stepDown: 0.8 },

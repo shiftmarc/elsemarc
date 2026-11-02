@@ -32,6 +32,9 @@ export function ElementStage() {
     const root = document.documentElement;
     const name = resolveElement(root.dataset.element);
     root.dataset.element = name;
+    // The browser's own chrome (Android's address bar) follows the element's palette.
+    const surface = getComputedStyle(root).getPropertyValue("--surface").trim();
+    if (surface) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", surface);
     // Say so when a requested element can't be shown (unknown, or no code yet), rather than silently showing another.
     const asked = /[?&#]element=([^&#]*)/i.exec(location.href)?.[1];
     if (asked !== undefined) {

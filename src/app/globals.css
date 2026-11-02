@@ -60,6 +60,22 @@
   color: var(--fg);
 }
 
+/* Earth visits: pale raked sand, so the page switches to dark ink. The
+   surface matches the sand, so the garden fades in seamlessly (and the
+   still version, without WebGL, still reads as sand). Text colours keep
+   at least 4.5:1 against the sand, including its shaded grooves. */
+html[data-element="earth"] {
+  --surface: #ddd7cb;
+  --surface-raised: #f1eee7;
+  --fg: #1b1a17;
+  --fg-muted: #4f4b44;
+  --line: color-mix(in oklab, #1b1a17 26%, transparent);
+  --accent: #b2361a;
+  --accent-fg: #f7f4ee;
+  --accent-quiet: var(--palette-moss-700);
+  color-scheme: light;
+}
+
 /* 3. Tailwind tokens ------------------------------------------------------ */
 @theme inline {
   /* Semantic colours (follow the active theme) */
@@ -315,6 +331,31 @@ html[data-keyboard] .tank-statement {
 
 .pricing-panel::backdrop {
   background: rgb(10 10 9 / 0.6);
+}
+
+/* Over earth's raked sand, text gets a soft halo of smooth sand so it reads
+   cleanly across the grooves, and the faint form hints get full muted ink. */
+html[data-element="earth"] :is(.tank-statement, .tank-corner, .tank-contact, #contact [role="status"]) {
+  text-shadow:
+    0 0 2px var(--surface-raised),
+    0 0 9px color-mix(in oklab, var(--surface-raised) 80%, transparent);
+}
+
+html[data-element="earth"] .tank-contact .bg-accent {
+  text-shadow: none;
+}
+
+html[data-element="earth"] .tank-contact ::placeholder,
+html[data-element="earth"] .tank-contact .text-fg-muted\/70 {
+  color: var(--fg-muted);
+}
+
+html[data-element="earth"] .pricing-panel {
+  box-shadow: 0 1.5rem 4rem rgb(60 52 40 / 0.22);
+}
+
+html[data-element="earth"] .pricing-panel::backdrop {
+  background: rgb(70 64 54 / 0.3);
 }
 
 /* Without JavaScript, the panel shows while it's the URL's target (#pricing). */

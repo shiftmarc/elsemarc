@@ -18,7 +18,8 @@ import { TUNING } from "./tuning";
  * heights are CSS px too.
  */
 
-export type Colors = { base: number[]; color: number[]; accent: number[] };
+/** The sand's colour, its brightest highlights, and the stone's (the page accent). */
+export type Colors = { sand: readonly number[]; high: readonly number[]; accent: readonly number[] };
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export type Op =
@@ -75,8 +76,10 @@ float streamers(vec2 p) {
   float v = dot(p, vec2(-d.y, d.x));
   float k = floor(v / ${W.lane.toFixed(1)});
   float sum = 0.0;
-  for (int j = -1; j <= 1; j++) {
-    float lane = k + float(j);
+  // Its own lane and the nearer neighbour (a ribbon never strays further).
+  float other = fract(v / ${W.lane.toFixed(1)}) < 0.5 ? k - 1.0 : k + 1.0;
+  for (int j = 0; j < 2; j++) {
+    float lane = j == 0 ? k : other;
     ivec2 id = ivec2(int(lane), 7);
     float h1 = hash(id);
     float h2 = hash(id + ivec2(0, 6));
@@ -108,22 +111,44 @@ float wordHeight(vec4 w) {
   return w.b > 0.2 ? max(h, stoneHeight(w.b)) : h;
 }
 
-// Straight raked lines, and rings around the stone; worn lines are shallower.
-float rake(vec2 p, float wear) {
+// Raked lines, and rings around the stone; worn lines are shallower. Drawn by hand, they're
+// never quite even: the lines wander a little, ridges rise and fall along their length, and
+// the tines leave fine streaks.
+//
+// The slow, smooth part of that (how the lines wander, how high the ridges are) changes too
+// little between neighbouring pixels to matter for their slopes, so it's worked out once per
+// pixel: x = wander, y = ridge height, z = the phase of the tines' streaks.
+vec3 handOf(vec2 p) {
   float period = uRake.x;
+  float wander = (noise(p * vec2(1.0 / 280.0, 1.0 / 520.0)) - 0.5) * 0.7 * period
+    + (noise(p * vec2(1.0 / 90.0, 1.0 / 240.0) + 31.0) - 0.5) * 0.16 * period;
+  float vary = 0.75 + 0.5 * noise(vec2(p.x / 120.0, (p.y + wander) / period * 0.9 + 0.5));
+  // The tines' fine streaks drift in and out of step along the lines.
+  float phase = noise(p * vec2(1.0 / 70.0, 1.0 / 30.0) + 5.0) * 12.566;
+  return vec3(wander, vary, phase);
+}
+
+float rake(vec2 p, float wear, vec3 hand) {
+  float period = uRake.x;
+  float wander = hand.x;
   float r = length(p - uStone.xy - uShift) - uStone.z;
   float margin = uRing.y;
   float zone = margin + uRing.z * period;
-  float ring = cos(6.2831853 * (r - margin) / period);
-  float line = cos(6.2831853 * p.y / period);
-  float g = mix(ring, line, smoothstep(zone - 0.15 * period, zone + 0.15 * period, r));
+  float ring = cos(6.2831853 * (r - margin + 0.4 * wander) / period);
+  float y = p.y + wander;
+  float line = cos(6.2831853 * y / period);
+  float straight = smoothstep(zone - 0.15 * period, zone + 0.15 * period, r);
+  float g = mix(ring, line, straight);
+  // Rounded ridges, broad soft troughs.
+  g = g > 0.0 ? pow(g, 0.8) : -pow(-g, 1.25);
   float inner = smoothstep(margin - 0.6 * period, margin + 0.1 * period, r);
-  return uRake.y * g * inner * (1.0 - uRake.z * wear);
+  float streak = (sin(y * 3.7 + hand.z) + sin(y * 2.3 - 1.7 * hand.z)) * 0.07 * straight;
+  return (uRake.y * g * hand.y + streak) * inner * (1.0 - uRake.z * wear);
 }
 
-float garden(vec2 p, float wear, out vec4 w) {
+float garden(vec2 p, float wear, vec3 hand, out vec4 w) {
   w = wordAt(p);
-  float h = mix(rake(p, wear), -uWordShape.x, w.r) + uWordShape.y * max(w.g - w.r, 0.0);
+  float h = mix(rake(p, wear, hand), -uWordShape.x, w.r) + uWordShape.y * max(w.g - w.r, 0.0);
   if (w.b > 0.2) h = max(h, stoneHeight(w.b));
   return h;
 }
@@ -140,6 +165,7 @@ uniform vec2 uCell;
 uniform vec4 uOpA[${MAX_OPS}];
 uniform vec4 uOpB[${MAX_OPS}];
 uniform int uOpCount;
+uniform bool uNeedBase;
 ${GARDEN}
 out vec4 outColor;
 void main() {
@@ -148,8 +174,9 @@ void main() {
   float d = s.r;
   float keep = s.g;
   float wear = s.b;
+  // Only the visitor's rakes and craters replace the garden's own shape (the invisible rake, every frame, doesn't).
   vec4 w;
-  float base = garden(p, wear, w);
+  float base = uNeedBase ? garden(p, wear, handOf(p), w) : 0.0;
   for (int i = 0; i < ${MAX_OPS}; i++) {
     if (i >= uOpCount) break;
     vec4 a = uOpA[i];
@@ -175,7 +202,10 @@ void main() {
         keep *= 1.0 - inside;
       } else {
         // The invisible rake: fresh lines behind its tines, a little sand pushed ahead of each.
-        float band = 1.0 - smoothstep(b.y - 1.5, b.y + 1.5, abs(across));
+        // Its passes overlap a little, unevenly, and its front isn't quite square, so they blend in.
+        float reach = b.y + (noise(vec2(p.x / 90.0, sign(across) * 7.0)) - 0.5) * 1.4 * b.w;
+        float band = 1.0 - smoothstep(reach - 0.9 * b.w, reach + 0.9 * b.w, abs(across));
+        t += (noise(vec2(p.y / 35.0, 3.0)) - 0.5) * 8.0;
         float along = smoothstep(-1.0, 0.5, t) * (1.0 - smoothstep(len - 0.5, len + 0.5, t));
         float fresh = along * band;
         d = mix(d, 0.0, fresh);
@@ -308,13 +338,19 @@ uniform vec3 uLight;
 uniform vec4 uShade;
 uniform vec2 uShadow;
 uniform vec3 uGrain;
-uniform vec3 uBase;
-uniform vec3 uInk;
+uniform vec3 uSand;
+uniform vec3 uHigh;
 uniform vec3 uAccent;
 uniform float uVignette;
 uniform float uTime;
 ${GARDEN}
 out vec4 outColor;
+
+// Bright highlights roll off softly instead of clipping.
+vec3 shoulder(vec3 c) {
+  vec3 over = max(c - 0.82, 0.0);
+  return min(c, 0.82) + 0.18 * (1.0 - exp(-over / 0.18));
+}
 
 // Smooth (cubic B-spline) sampling from four bilinear taps, so the lighting shows no grid.
 vec4 smoothSample(sampler2D t, vec2 uv, vec2 size) {
@@ -335,6 +371,21 @@ vec4 smoothSample(sampler2D t, vec2 uv, vec2 size) {
        + g1.y * (g0.x * texture(t, vec2(h0.x, h1.y)) + g1.x * texture(t, h1));
 }
 
+// Value noise and its slope, from one set of four hashes.
+vec3 noiseD(vec2 p) {
+  vec2 fl = floor(p);
+  ivec2 i = ivec2(fl);
+  vec2 f = p - fl;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  vec2 du = 6.0 * f * (1.0 - f);
+  float a = hash(i);
+  float b = hash(i + ivec2(1, 0));
+  float c = hash(i + ivec2(0, 1));
+  float d = hash(i + ivec2(1, 1));
+  float k = a - b - c + d;
+  return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
+}
+
 vec2 simUv(vec2 p) {
   return vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
 }
@@ -347,8 +398,8 @@ vec4 messageAt(vec2 p) {
 
 // The garden, the streamers of blown sand, and the pressed message (softer and shallower as the wind erases it).
 // (The streamers are added once per pixel, in main: they are soft enough for screen-space slopes.)
-float surface(vec2 p, float keep, float wear, out vec4 w, out float pressed) {
-  float h = garden(p, wear, w);
+float surface(vec2 p, float keep, float wear, vec3 hand, out vec4 w, out float pressed) {
+  float h = garden(p, wear, hand, w);
   vec4 m = messageAt(p);
   float press = uMessageShape.z * keep;
   pressed = mix(m.g * 0.85, m.r, keep) * press;
@@ -367,9 +418,10 @@ void main() {
   vec4 wy;
   float pressed;
   float px;
-  float h0 = surface(p, keep, wear, w, pressed);
-  float hx = surface(p + vec2(e, 0.0), keep, wear, wx, px);
-  float hy = surface(p + vec2(0.0, e), keep, wear, wy, px);
+  vec3 hand = handOf(p);
+  float h0 = surface(p, keep, wear, hand, w, pressed);
+  float hx = surface(p + vec2(e, 0.0), keep, wear, hand, wx, px);
+  float hy = surface(p + vec2(0.0, e), keep, wear, hand, wy, px);
   float blown = streamers(p) * (1.0 - w.r) * (1.0 - smoothstep(0.15, 0.3, w.b)) * (1.0 - pressed);
   float bh = blown * ${W.streamerHeight.toFixed(2)};
   vec2 slope = vec2(hx - h0, hy - h0) / e + dist.xy + vec2(dFdx(bh), -dFdy(bh)) / e;
@@ -379,8 +431,7 @@ void main() {
   float stone = smoothstep(0.18, 0.3, w.b);
   float grainy = (1.0 - 0.8 * packed) * (1.0 - stone);
   vec2 gp = p / uGrain.x;
-  float n0 = noise(gp);
-  slope += vec2(noise(gp + vec2(e / uGrain.x, 0.0)) - n0, noise(gp + vec2(0.0, e / uGrain.x)) - n0) / e * uGrain.y * grainy;
+  slope += noiseD(gp).yz * (0.7 / uGrain.x) * uGrain.y * grainy;
 
   vec3 n = normalize(vec3(-slope * uShade.z, 1.0));
   float facing = dot(n, uLight);
@@ -398,32 +449,35 @@ void main() {
   }
   float shadow = 1.0 - uShadow.x * smoothstep(0.0, 0.9, block) * (1.0 - stone * 0.6);
 
-  // Dark volcanic sand, each grain a little different; pressed sand is darker, the stone is the accent;
-  // blown sand is finer and a touch paler.
+  // Pale sand, each grain a little different and the whole faintly mottled; pressed sand is
+  // packed a shade darker, blown sand is finer and paler, the stone is the accent.
   ivec2 cell = ivec2(floor(gp));
   float speck = hash(cell);
-  vec3 sand = uBase * uShade.w * vec3(0.95, 0.97, 1.03) * (0.8 + 0.4 * speck) * (1.0 - 0.3 * w.r - 0.05 * pressed);
-  sand *= 1.0 + 0.25 * min(blown, 1.0);
-  vec3 albedo = mix(sand, uAccent * 0.85, stone);
+  float mottle = noise(p / 90.0);
+  vec3 sand = uSand * (0.95 + 0.1 * speck) * (0.96 + 0.08 * mottle) * (1.0 - 0.17 * w.r - 0.06 * pressed);
+  sand = mix(sand, uHigh * 0.97, 0.18 * min(blown, 1.0));
+  vec3 albedo = mix(sand, uAccent * 0.9, stone);
 
-  // The sun is low in the top left: a gentle falloff across the garden. Warm light, cool shade.
+  // Bright daylight, low from the top left, gently falling off across the garden: warm sun,
+  // cool sky in the shade, so each ridge has a bright side and a soft shadow.
   vec2 v = p / uSize;
-  float sun = uShade.y * (1.1 - 0.2 * dot(v, vec2(0.62, 0.38)));
-  vec3 col = albedo * (uShade.x * vec3(0.94, 0.97, 1.04) + sun * max(facing, 0.0) * shadow * vec3(1.05, 1.0, 0.92));
+  float sun = uShade.y * (1.08 - 0.16 * dot(v, vec2(0.62, 0.38)));
+  vec3 col = albedo * (uShade.x * vec3(0.9, 0.95, 1.06) + sun * max(facing, 0.0) * shadow * vec3(1.06, 1.0, 0.9));
 
-  // Sheen on pressed sand and the polished stone; rare glassy grains glint.
+  // Sheen on packed sand and the polished stone; rare glassy grains glint.
   vec3 halfway = normalize(uLight + vec3(0.0, 0.0, 1.0));
-  float spec = pow(max(dot(n, halfway), 0.0), mix(36.0, 70.0, stone)) * mix(0.03 * packed, 0.55, stone);
-  float glint = step(1.0 - uGrain.z, hash(cell + ivec2(91, 17))) * smoothstep(0.3, 0.75, facing) * grainy;
-  col += uInk * (spec + glint * 0.08) * shadow;
+  float spec = pow(max(dot(n, halfway), 0.0), mix(30.0, 70.0, stone)) * mix(0.04 * packed, 0.5, stone);
+  float glint = step(1.0 - uGrain.z, hash(cell + ivec2(91, 17))) * smoothstep(0.35, 0.75, facing) * grainy;
+  col += uHigh * (spec + glint * 0.12) * shadow;
 
   // The blown sand catches the light as it travels: a fine, moving shimmer along the streamers.
   vec2 d = uWind.xy;
   float fine = noise((p - d * uWind.w * ${(W.streamerSpeed * 1.4).toFixed(1)}) / 0.9);
-  col += uInk * ${W.streamerGlow.toFixed(3)} * min(blown, 1.2) * (0.4 + fine) * max(facing, 0.2) * shadow;
+  col += uHigh * ${W.streamerGlow.toFixed(3)} * min(blown, 1.2) * (0.4 + fine) * max(facing, 0.2) * shadow;
 
   v -= 0.5;
   col *= 1.0 - uVignette * dot(v, v) * 1.6;
+  col = shoulder(col);
   col += (hash(ivec2(gl_FragCoord.xy) + ivec2(int(uTime * 60.0) * 7919, 0)) - 0.5) / 255.0;
   outColor = vec4(col, 1.0);
 }`;
@@ -455,9 +509,9 @@ precision highp float;
 in vec4 vB;
 uniform vec3 uLight;
 uniform float uShadow;
-uniform vec3 uBase;
-uniform vec3 uInk;
-uniform float uSand;
+uniform vec3 uSand;
+uniform vec3 uHigh;
+uniform vec2 uShade;
 out vec4 outColor;
 void main() {
   vec2 q = gl_PointCoord * 2.0 - 1.0;
@@ -467,17 +521,18 @@ void main() {
   r.y *= vB.w;
   float r2 = dot(r, r);
   if (uShadow > 0.5) {
-    float a = (1.0 - smoothstep(0.15, 1.0, r2)) * (vB.x > 0.5 ? 0.5 : 0.3) * vB.y;
-    outColor = vec4(0.0, 0.0, 0.0, a);
+    float a = (1.0 - smoothstep(0.15, 1.0, r2)) * (vB.x > 0.5 ? 0.4 : 0.26) * vB.y;
+    outColor = vec4(0.12, 0.13, 0.17, a);
     return;
   }
   if (r2 > 1.0) discard;
   vec3 n = normalize(vec3(q, sqrt(max(1.0 - r2, 0.0)) * (vB.x > 0.5 ? 0.75 : 1.0)));
-  // Grains are the sand itself; pebbles a smoother, paler grey basalt.
-  vec3 albedo = vB.x > 0.5 ? mix(uBase * 1.6, vec3(0.19, 0.19, 0.2), 0.5) : uBase * uSand * vec3(0.95, 0.97, 1.03);
-  vec3 col = albedo * (0.3 + 2.4 * max(dot(n, uLight), 0.0));
+  // Grains are the sand itself; pebbles dark grey basalt.
+  vec3 albedo = vB.x > 0.5 ? vec3(0.2, 0.2, 0.21) : uSand;
+  vec3 col = albedo * (uShade.x + 1.6 * uShade.y * max(dot(n, uLight), 0.0));
   vec3 halfway = normalize(uLight + vec3(0.0, 0.0, 1.0));
-  col += uInk * pow(max(dot(n, halfway), 0.0), vB.x > 0.5 ? 28.0 : 14.0) * (vB.x > 0.5 ? 0.32 : 0.22);
+  col += uHigh * pow(max(dot(n, halfway), 0.0), vB.x > 0.5 ? 28.0 : 14.0) * (vB.x > 0.5 ? 0.35 : 0.15);
+  col = min(col, vec3(1.0));
   outColor = vec4(col, (1.0 - smoothstep(0.8, 1.0, r2)) * vB.y);
 }`;
 
@@ -505,7 +560,7 @@ export class GardenRenderer {
   private messageRect: Rect = { x: 0, y: 0, w: 1, h: 1 };
   private black: WebGLTexture;
 
-  private colors: Colors = { base: [0.09, 0.09, 0.09], color: [1, 1, 1], accent: [1, 0.3, 0.2] };
+  private colors: Colors = { sand: TUNING.palette.sand, high: TUNING.palette.high, accent: [0.8, 0.25, 0.12] };
   private garden: Garden | null = null;
   private shift: [number, number] = [0, 0];
   private wind = { level: 0, time: 0 };
@@ -639,6 +694,7 @@ export class GardenRenderer {
       gl.uniform4fv(p.u("uOpA"), this.opA);
       gl.uniform4fv(p.u("uOpB"), this.opB);
       gl.uniform1i(p.u("uOpCount"), batch.length);
+      gl.uniform1i(p.u("uNeedBase"), batch.some((op) => op.kind === "rake" || op.kind === "crater") ? 1 : 0);
       this.draw();
       this.state.reverse();
     }
@@ -700,13 +756,13 @@ export class GardenRenderer {
     gl.uniform2f(p.u("uSimSize"), this.simSize[0], this.simSize[1]);
     gl.uniform3fv(p.u("uLight"), this.light);
     const l = TUNING.light;
-    gl.uniform4f(p.u("uShade"), l.ambient, l.sun, l.relief, l.sand);
+    gl.uniform4f(p.u("uShade"), l.ambient, l.sun, l.relief, 0);
     gl.uniform2f(p.u("uShadow"), l.shadow, 0);
     const gr = TUNING.grain;
     gl.uniform3f(p.u("uGrain"), gr.size, gr.relief, gr.glint);
-    gl.uniform3fv(p.u("uBase"), this.colors.base);
-    gl.uniform3fv(p.u("uInk"), this.colors.color);
-    gl.uniform3fv(p.u("uAccent"), this.colors.accent);
+    gl.uniform3fv(p.u("uSand"), this.colors.sand as number[]);
+    gl.uniform3fv(p.u("uHigh"), this.colors.high as number[]);
+    gl.uniform3fv(p.u("uAccent"), this.colors.accent as number[]);
     gl.uniform1f(p.u("uVignette"), l.vignette);
     gl.uniform1f(p.u("uTime"), time);
     this.draw();
@@ -720,9 +776,9 @@ export class GardenRenderer {
       gl.uniform2f(sp.u("uSize"), this.size[0], this.size[1]);
       gl.uniform1f(sp.u("uRatio"), this.res[0] / this.size[0]);
       gl.uniform3fv(sp.u("uLight"), this.light);
-      gl.uniform3fv(sp.u("uBase"), this.colors.base);
-      gl.uniform3fv(sp.u("uInk"), this.colors.color);
-      gl.uniform1f(sp.u("uSand"), l.sand);
+      gl.uniform3fv(sp.u("uSand"), this.colors.sand as number[]);
+      gl.uniform3fv(sp.u("uHigh"), this.colors.high as number[]);
+      gl.uniform2f(sp.u("uShade"), l.ambient, l.sun);
       gl.bindVertexArray(this.spriteVao);
       for (const shadow of [1, 0]) {
         gl.uniform1f(sp.u("uShadow"), shadow);

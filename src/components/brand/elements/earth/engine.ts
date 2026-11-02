@@ -4,9 +4,10 @@ import { GardenRenderer, SPRITE_FLOATS, type Op, type Rect } from "./renderer";
 import { TUNING } from "./tuning";
 
 /**
- * Earth: a zen garden. Fine dark volcanic sand seen from above in low
- * raking light, raked in long straight lines, with the wordmark pressed
- * into it and its accent a smooth stone with rings raked around it.
+ * Earth: a zen garden. Pale sand seen from above in bright, low daylight,
+ * raked in long lines by hand, with the wordmark stamped into it and its
+ * accent a smooth stone with rings raked around it. The page switches to
+ * its light palette for it (globals.css).
  *
  * Dragging rakes deep grooves that slowly settle back; a tap leaves a
  * crater and throws grains; each keystroke drops a pebble that leaves a
@@ -188,11 +189,12 @@ export class EarthScene implements ElementScene {
     this.renderer = new GardenRenderer(gl);
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, TUNING.render.maxPixelRatio);
 
+    // The sand is the garden's own; the stone takes the page's accent.
     const root = getComputedStyle(document.documentElement);
     this.renderer.setColors({
-      base: readColor(root.getPropertyValue("--surface"), [0.094, 0.094, 0.086]),
-      color: readColor(root.getPropertyValue("--fg"), [0.957, 0.945, 0.918]),
-      accent: readColor(root.getPropertyValue("--accent"), [0.894, 0.314, 0.169]),
+      sand: TUNING.palette.sand,
+      high: TUNING.palette.high,
+      accent: readColor(root.getPropertyValue("--accent"), [0.72, 0.22, 0.1]),
     });
 
     this.resizer = new ResizeObserver(() => {
@@ -271,7 +273,7 @@ export class EarthScene implements ElementScene {
       margin: radius * g.ringGap + 2,
       rings: g.rings,
       period: this.period,
-      amp: g.amp,
+      amp: g.amp * this.period,
       depth: Math.min(w.depthRange[1], Math.max(w.depthRange[0], fs * w.depth)),
       rim: w.rim,
       stoneHeight: fs * w.stoneHeight,
