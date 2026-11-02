@@ -187,7 +187,7 @@
   }
 }
 
-/* Water wordmark ---------------------------------------------------------
+/* Water tank -------------------------------------------------------------
    While the water draws the word, the h1's own glyphs are transparent (it
    still sets the size and is read by assistive tech). If the water hasn't
    started 3s after "pending", the still text fades back. */
@@ -224,6 +224,20 @@ html[data-water="pending"] .wordmark [data-water-accent] {
 
 html:not([data-water="on"]) .water-canvas {
   pointer-events: none;
+}
+
+/* The tank page never scrolls or bounces. */
+html:has(.tank),
+html:has(.tank) body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Contact steps: one at a time with JavaScript; all at once without. */
+html[data-js] .tank-contact[data-step="message"] [data-panel="email"],
+html[data-js] .tank-contact[data-step="email"] [data-panel="message"],
+html:not([data-js]) .tank-contact [data-js-only] {
+  display: none;
 }
 
 /* 5. Motion --------------------------------------------------------------- */

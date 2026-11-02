@@ -20,10 +20,11 @@ const page = (body: string) =>
 
 export function notificationEmail(input: { id: string; values: ContactFields; submittedAt: Date }): Email {
   const { id, values, submittedAt } = input;
+  const who = values.name || values.email;
   const when = submittedAt.toLocaleString("en-CA", { timeZone: "America/Toronto", dateStyle: "long", timeStyle: "short" });
 
   const text = [
-    `New message from ${values.name} <${values.email}>.`,
+    `New message from ${values.name ? `${values.name} <${values.email}>` : values.email}.`,
     `Sent ${when} (Toronto). Message ${id}.`,
     `Reply to this email to answer them directly.`,
     "",
@@ -35,19 +36,19 @@ export function notificationEmail(input: { id: string; values: ContactFields; su
   const html = page(
     [
       `<p style="margin:0 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b">New message</p>`,
-      `<h1 style="margin:0 0 8px;font-size:22px;font-weight:600">${escape(values.name)}</h1>`,
+      `<h1 style="margin:0 0 8px;font-size:22px;font-weight:600">${escape(who)}</h1>`,
       `<p style="margin:0 0 24px;color:#6b6b6b"><a href="mailto:${escape(values.email)}" style="color:#1a1a1a">${escape(values.email)}</a><br>Sent ${escape(when)} (Toronto) · Message ${escape(id)}<br>Reply to this email to answer them directly.</p>`,
       `<p style="margin:0 0 24px;border-top:1px solid #e5e5e5;padding-top:16px;white-space:pre-line">${escape(values.message)}</p>`,
       `<p style="margin:0;color:#6b6b6b">Link: ${values.link ? `<span style="color:#1a1a1a">${escape(values.link)}</span>` : "Not given"}</p>`,
     ].join(""),
   );
 
-  return { subject: oneLine(`New message: ${values.name}`), text, html };
+  return { subject: oneLine(`New message: ${who}`), text, html };
 }
 
 export function confirmationEmail(values: ContactFields): Email {
   const paragraphs = [
-    `Hi ${values.name},`,
+    values.name ? `Hi ${values.name},` : "Hello,",
     `Thank you for your message. It has arrived safely, and we’ll reply by email soon.`,
     `If you think of anything to add in the meantime, simply reply to this email.`,
     `Warmly,\nelsemarc`,

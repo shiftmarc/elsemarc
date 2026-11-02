@@ -82,7 +82,8 @@ export async function sendContact(_previous: ContactState, form: FormData): Prom
 }
 
 async function sendContactEmails(id: string, values: ContactFields, submittedAt: Date) {
-  const sender = { name: oneLine(values.name, 100), address: values.email };
+  const name = oneLine(values.name, 100);
+  const sender = name ? { name, address: values.email } : values.email;
 
   const owner = (async () => {
     const to = process.env.NOTIFY_EMAIL;

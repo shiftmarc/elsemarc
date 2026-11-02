@@ -3,19 +3,24 @@ import { TUNING } from "./tuning";
 
 /**
  * A small 2D liquid: particles with double-density relaxation (Clavet et
- * al., 2005) for pressure and surface tension, plus a soft spring that
- * pulls each particle back to its place in the word.
+ * al., 2005) for pressure, plus viscosity, and a memory of the word.
  *
- * Every particle carries an "excitation" from 0 (calm) to 1 (disturbed).
- * Disturbed water falls under gravity and ignores the word; as it calms,
- * gravity fades and the pull home grows, so splashes fall, flow, then
- * gather back into the letters.
+ * Particles [0, words) belong to the word: each has a home in a letter.
+ * Every word particle carries an "excitation" from 0 (calm) to 1
+ * (disturbed). Disturbed water falls under gravity and ignores the word;
+ * as it calms, gravity fades and a capped pull flows it home, so splashes
+ * fall, pool, then climb back into the letters.
+ *
+ * Particles [words, count) are transient: water made from text the visitor
+ * sends. They fall, mix with the word's water, and fade away.
  */
 export class WaterSim {
-  readonly n: number;
+  readonly words: number;
+  readonly capacity: number;
   readonly spacing: number;
   readonly fontSize: number;
   readonly unit: number;
+  count: number;
   sleeping = false;
 
   private px: Float32Array;
@@ -28,8 +33,12 @@ export class WaterSim {
   private hy: Float32Array;
   private ex: Float32Array;
   private calmRate: Float32Array;
+  /** Seconds a collapsed word particle rests in the pool before it starts calming (words only). */
+  private hold: Float32Array;
   private release: Float32Array;
+  private life: Float32Array;
   private active: Uint8Array;
+  private inTank: Uint8Array;
   private accent: Uint8Array;
 
   private width: number;
@@ -40,6 +49,8 @@ export class WaterSim {
   private time = 0;
   private quiet = 0;
   private allActive: boolean;
+  private gx = 0;
+  private gy = 1;
 
   // Spatial grid, rebuilt each step.
   private cols = 1;
@@ -55,7 +66,10 @@ export class WaterSim {
 
   constructor(t: Targets, width: number, height: number, pour: boolean) {
     const n = t.count;
-    this.n = n;
+    const cap = n + TUNING.dissolve.maxParticles;
+    this.words = n;
+    this.count = n;
+    this.capacity = cap;
     this.spacing = t.spacing;
     this.fontSize = t.fontSize;
     this.unit = t.fontSize / 200;
@@ -64,21 +78,30 @@ export class WaterSim {
     this.h = t.spacing * TUNING.fluid.radius;
     this.top = t.fontSize * (TUNING.pour.stretch + 0.6) + 40;
 
-    this.px = Float32Array.from(t.hx);
-    this.py = Float32Array.from(t.hy);
-    this.vx = new Float32Array(n);
-    this.vy = new Float32Array(n);
-    this.ox = new Float32Array(n);
-    this.oy = new Float32Array(n);
-    this.hx = t.hx;
-    this.hy = t.hy;
-    this.ex = new Float32Array(n);
-    this.calmRate = new Float32Array(n).fill(1 / TUNING.recall.calm);
-    this.release = new Float32Array(n);
-    this.active = new Uint8Array(n).fill(1);
-    this.accent = t.accent;
-    this.cellOf = new Int32Array(n);
-    this.cellItems = new Int32Array(n);
+    const grow = (src: ArrayLike<number>) => {
+      const a = new Float32Array(cap);
+      a.set(src);
+      return a;
+    };
+    this.px = grow(t.hx);
+    this.py = grow(t.hy);
+    this.hx = grow(t.hx);
+    this.hy = grow(t.hy);
+    this.vx = new Float32Array(cap);
+    this.vy = new Float32Array(cap);
+    this.ox = new Float32Array(cap);
+    this.oy = new Float32Array(cap);
+    this.ex = new Float32Array(cap);
+    this.calmRate = new Float32Array(cap).fill(1 / TUNING.recall.calm);
+    this.hold = new Float32Array(cap);
+    this.release = new Float32Array(cap);
+    this.life = new Float32Array(cap);
+    this.active = new Uint8Array(cap).fill(1);
+    this.inTank = new Uint8Array(cap).fill(1);
+    this.accent = new Uint8Array(cap);
+    this.accent.set(t.accent);
+    this.cellOf = new Int32Array(cap);
+    this.cellItems = new Int32Array(cap);
     this.cellStart = new Int32Array(2);
 
     this.rho0 = this.restDensity();
@@ -89,25 +112,25 @@ export class WaterSim {
   /** Density of the word at rest, so resting water feels no pressure. */
   private restDensity() {
     this.buildGrid();
-    const rho = new Float32Array(this.n);
-    for (let i = 0; i < this.n; i++) {
+    const rho = new Float32Array(this.words);
+    for (let i = 0; i < this.words; i++) {
       const k = this.neighbours(i);
       let r = 0;
       for (let j = 0; j < k; j++) r += (1 - this.nq[j]) * (1 - this.nq[j]);
       rho[i] = r;
     }
     rho.sort();
-    return Math.max(rho[Math.floor(this.n * 0.7)] ?? 1, 0.5);
+    return Math.max(rho[Math.floor(this.words * 0.7)] ?? 1, 0.5);
   }
 
-  /** Puts every particle above the hero and schedules it to fall into its letter. */
+  /** Puts every particle above the tank and schedules it to fall into its letter. */
   private preparePour() {
     const { delay, sweep, jitter, stretch, scatter } = TUNING.pour;
     const g = TUNING.fluid.gravity * this.unit;
     const v0 = 0.25 * Math.sqrt(2 * g * this.fontSize);
     let bottom = 0;
-    for (let i = 0; i < this.n; i++) bottom = Math.max(bottom, this.hy[i]);
-    for (let i = 0; i < this.n; i++) {
+    for (let i = 0; i < this.words; i++) bottom = Math.max(bottom, this.hy[i]);
+    for (let i = 0; i < this.words; i++) {
       // The lowest water leads, so each letter fills from the bottom up.
       this.px[i] = this.hx[i] + (Math.random() - 0.5) * this.spacing * scatter;
       this.py[i] = -10 - (bottom - this.hy[i]) * stretch - Math.random() * this.spacing;
@@ -118,23 +141,27 @@ export class WaterSim {
       this.calmRate[i] = 1 / (t * 1.25 + 0.15);
       this.release[i] = delay + (this.hx[i] / Math.max(this.width, 1)) * sweep + Math.random() * jitter;
       this.active[i] = 0;
+      this.inTank[i] = 0;
     }
     this.allActive = false;
   }
 
-  /** Whether any water is still waiting to fall. */
+  /** Whether any water is still waiting to fall in. */
   get pouring() {
     return !this.allActive;
   }
 
   step(dt: number) {
     this.time += dt;
-    const { px, py, vx, vy, ox, oy, ex, calmRate, active, n } = this;
+    const { px, py, vx, vy, ox, oy, ex, calmRate, hold, active, life, words } = this;
     const g = TUNING.fluid.gravity * this.unit;
+    const gx = this.gx * g;
+    const gy = this.gy * g;
     const drag = TUNING.fluid.drag;
+    const damping = TUNING.recall.damping;
 
     let waiting = false;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) {
         if (this.time < this.release[i]) {
           waiting = true;
@@ -144,10 +171,14 @@ export class WaterSim {
       }
       const e = ex[i];
       // Calming water loses momentum, so it eases home instead of overshooting.
-      const settle = 1 - TUNING.recall.damping * (1 - e) * (1 - e);
-      vx[i] *= drag * settle;
-      vy[i] = (vy[i] + g * e * dt) * drag * settle;
-      ex[i] = e > 0 ? Math.max(0, e - calmRate[i] * dt) : 0;
+      const settle = 1 - damping * (1 - e) * (1 - e);
+      vx[i] = (vx[i] + gx * e * dt) * drag * settle;
+      vy[i] = (vy[i] + gy * e * dt) * drag * settle;
+      if (i < words) {
+        if (hold[i] > 0) hold[i] -= dt;
+        else ex[i] = e > 0 ? Math.max(0, e - calmRate[i] * dt) : 0;
+      }
+      else life[i] -= dt;
       ox[i] = px[i];
       oy[i] = py[i];
       px[i] += vx[i] * dt;
@@ -158,19 +189,22 @@ export class WaterSim {
     this.relax();
     this.recall(dt);
 
-    // Walls, floor, and velocities from the corrected positions.
+    // Tank walls, and velocities from the corrected positions.
     const right = this.width - 0.5;
     const floor = this.height - 0.5;
-    const ceiling = -this.top;
     const friction = TUNING.fluid.floorFriction;
+    const inv = 1 / dt;
     let maxV2 = 0;
     let maxE = 0;
-    const inv = 1 / dt;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) continue;
       if (px[i] < 0.5) px[i] = 0.5;
       else if (px[i] > right) px[i] = right;
-      if (py[i] < ceiling) py[i] = ceiling;
+      // Poured water enters from above; once inside, the lid holds it.
+      if (!this.inTank[i]) {
+        if (py[i] >= 0.5) this.inTank[i] = 1;
+        else if (py[i] < -this.top) py[i] = -this.top;
+      } else if (py[i] < 0.5) py[i] = 0.5;
       vx[i] = (px[i] - ox[i]) * inv;
       vy[i] = (py[i] - oy[i]) * inv;
       if (py[i] > floor) {
@@ -183,10 +217,26 @@ export class WaterSim {
       if (ex[i] > maxE) maxE = ex[i];
     }
 
+    this.removeSpent();
+
     const still = 2.5 * this.unit;
-    if (!waiting && maxE < 0.01 && maxV2 < still * still) {
+    if (!waiting && this.count === words && maxE < 0.01 && maxV2 < still * still) {
       if (++this.quiet > 45) this.sleeping = true;
     } else this.quiet = 0;
+  }
+
+  /** Drops transient water whose life has run out (swap with the last one). */
+  private removeSpent() {
+    const { life, words } = this;
+    for (let i = this.count - 1; i >= words; i--) {
+      if (life[i] > 0) continue;
+      const last = --this.count;
+      if (i === last) continue;
+      for (const a of [this.px, this.py, this.vx, this.vy, this.ox, this.oy, this.hx, this.hy, this.ex, this.calmRate, this.life])
+        a[i] = a[last];
+      this.inTank[i] = this.inTank[last];
+      this.accent[i] = this.accent[last];
+    }
   }
 
   /**
@@ -195,10 +245,10 @@ export class WaterSim {
    * and slows as it arrives.
    */
   private recall(dt: number) {
-    const { px, py, hx, hy, ex, active, n } = this;
+    const { px, py, hx, hy, ex, active } = this;
     const rate = TUNING.recall.rate;
     const maxStep = TUNING.recall.maxSpeed * this.unit * dt;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.words; i++) {
       if (!active[i]) continue;
       const calm = 1 - ex[i];
       const r = rate * calm * calm;
@@ -223,7 +273,8 @@ export class WaterSim {
     if (this.cellStart.length < cells + 1) this.cellStart = new Int32Array(cells + 1);
     const start = this.cellStart;
     start.fill(0, 0, cells + 1);
-    const { px, py, active, cellOf, n } = this;
+    const { px, py, active, cellOf } = this;
+    const n = this.count;
     for (let i = 0; i < n; i++) {
       if (!active[i]) {
         cellOf[i] = -1;
@@ -274,23 +325,25 @@ export class WaterSim {
     return k;
   }
 
-  /** Double density relaxation: pressure pushes apart, near-pressure prevents clumps. */
+  /** Double density relaxation with viscosity. */
   private relax() {
     this.buildGrid();
-    const { px, py, active, n, h, rho0, nb, nq, nx, ny } = this;
+    const { px, py, ox, oy, hx, hy, ex, active, h, rho0, nb, nq, nx, ny, words } = this;
     const stiff = TUNING.fluid.stiffness;
     const near = TUNING.fluid.nearStiffness;
     const cohesion = TUNING.fluid.cohesion;
-    const maxD = 0.5 * h;
     const visc = TUNING.fluid.viscosity * 0.5;
-    const { ox, oy, hx, hy, ex } = this;
+    const maxD = 0.5 * h;
     const away = 1 / (2.5 * this.spacing);
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) continue;
       // Water resting in its letter holds the word's shape; the liquid takes over once it moves.
-      const off = Math.hypot(px[i] - hx[i], py[i] - hy[i]) * away - 0.2;
-      const fluid = Math.max(ex[i], Math.min(1, off));
-      if (fluid <= 0.02) continue;
+      let fluid = 1;
+      if (i < words) {
+        const off = Math.hypot(px[i] - hx[i], py[i] - hy[i]) * away - 0.2;
+        fluid = Math.max(ex[i], Math.min(1, off));
+        if (fluid <= 0.02) continue;
+      }
       const k = this.neighbours(i);
       if (k === 0) continue;
       let rho = 0;
@@ -327,23 +380,30 @@ export class WaterSim {
     }
   }
 
-  /** The pointer moved through the water with velocity (vx, vy) px/s. */
+  /** Disturbs word water (gravity in, memory out). Transients are always disturbed. */
+  private disturb(i: number, amount: number, calmRate = 1 / TUNING.recall.calm) {
+    if (i >= this.words) return;
+    if (amount > this.ex[i]) this.ex[i] = Math.min(1, amount);
+    this.calmRate[i] = Math.min(this.calmRate[i], calmRate);
+    if (this.ex[i] < 0.02) this.calmRate[i] = calmRate;
+  }
+
+  /** A drag through the water with velocity (vx, vy) px/s: the water is carried and flung. */
   push(x: number, y: number, vx: number, vy: number, radius: number) {
-    const speed = Math.hypot(vx, vy);
+    let speed = Math.hypot(vx, vy);
     if (speed < 20) return;
-    const { px, py, ex, calmRate, active, n } = this;
-    const r2 = radius * radius;
-    const amount = TUNING.pointer.push;
-    const stir = Math.min(1, speed / (900 * this.unit)) * TUNING.pointer.disturb;
-    // Fast flicks move water, but no faster than this: past it, water just sprays.
     const cap = TUNING.pointer.maxSpeed * this.unit;
     if (speed > cap) {
       vx *= cap / speed;
       vy *= cap / speed;
+      speed = cap;
     }
-    const calm = 1 / TUNING.recall.calm;
+    const { px, py, active } = this;
+    const r2 = radius * radius;
+    const amount = TUNING.pointer.push;
+    const stir = Math.min(1, speed / (900 * this.unit)) * TUNING.pointer.disturb;
     let touched = false;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) continue;
       const dx = px[i] - x;
       const dy = py[i] - y;
@@ -352,11 +412,10 @@ export class WaterSim {
       const d = Math.sqrt(d2);
       let f = 1 - d / radius;
       f *= f;
-      const out = d > 1e-3 ? (Math.min(speed, cap) * 0.2 * f) / d : 0;
+      const out = d > 1e-3 ? (speed * 0.2 * f) / d : 0;
       this.vx[i] += (vx * amount - this.vx[i]) * f + dx * out;
       this.vy[i] += (vy * amount - this.vy[i]) * f + dy * out;
-      ex[i] = Math.max(ex[i], Math.min(1, f * 2) * stir);
-      calmRate[i] = calm;
+      this.disturb(i, Math.min(1, f * 2) * stir);
       touched = true;
     }
     if (touched) this.wake();
@@ -364,14 +423,13 @@ export class WaterSim {
 
   /** A tap: throws the nearby water outward and up. */
   splash(x: number, y: number, radius: number) {
-    const { px, py, ex, calmRate, active, n } = this;
+    const { px, py, active } = this;
     const reach = radius * 1.3;
     const r2 = reach * reach;
     const out = TUNING.pointer.splash * this.unit;
     const lift = TUNING.pointer.splashLift * this.unit;
-    const calm = 1 / TUNING.recall.calm;
     let touched = false;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) continue;
       const dx = px[i] - x;
       const dy = py[i] - y;
@@ -381,24 +439,80 @@ export class WaterSim {
       let f = 1 - d / reach;
       f *= f;
       const kick = 0.9 + Math.random() * 0.2;
-      this.vx[i] += (dx / d) * out * f * kick;
-      this.vy[i] += (dy / d) * out * f * kick - lift * f;
-      ex[i] = Math.max(ex[i], 0.6 + 0.4 * f);
-      calmRate[i] = calm;
+      this.vx[i] += (dx / d) * out * f * kick - this.gx * lift * f;
+      this.vy[i] += (dy / d) * out * f * kick - this.gy * lift * f;
+      this.disturb(i, 0.6 + 0.4 * f);
       touched = true;
     }
     if (touched) this.wake();
   }
 
-  /** Stirs everything a little; used once at startup to time a busy step. */
-  jostle() {
-    const v = this.spacing * 40;
-    for (let i = 0; i < this.n; i++) {
-      this.vx[i] = (Math.random() - 0.5) * v;
-      this.vy[i] = (Math.random() - 0.5) * v;
-      this.ex[i] = 0.4;
+  /** A held pointer: draws the water within `radius` towards (x, y). */
+  attract(x: number, y: number, radius: number, dt: number) {
+    const { px, py, active } = this;
+    const r2 = radius * radius;
+    const pull = TUNING.gestures.holdStrength * this.unit * dt;
+    let touched = false;
+    for (let i = 0; i < this.count; i++) {
+      if (!active[i]) continue;
+      const dx = x - px[i];
+      const dy = y - py[i];
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= r2 || d2 < 1) continue;
+      const d = Math.sqrt(d2);
+      const f = 1 - d / radius;
+      const a = (pull * (0.35 + f)) / d;
+      const keep = 1 - Math.min(0.5, 6 * dt * f); // a little drag, so it gathers instead of orbiting
+      this.vx[i] = this.vx[i] * keep + dx * a;
+      this.vy[i] = this.vy[i] * keep + dy * a;
+      this.disturb(i, 0.35 + 0.4 * f);
+      touched = true;
+    }
+    if (touched) this.wake();
+  }
+
+  /** A fast swipe: the word lets go and pools on the floor, rests, then climbs back. */
+  collapse(dirX: number) {
+    const shove = 220 * this.unit;
+    const { poolTime, climbTime } = TUNING.gestures;
+    for (let i = 0; i < this.words; i++) {
+      if (!this.active[i]) continue;
+      this.ex[i] = 1;
+      this.hold[i] = poolTime * (0.9 + Math.random() * 0.2);
+      this.calmRate[i] = 1 / climbTime;
+      this.vx[i] += dirX * shove * (0.6 + Math.random() * 0.8);
     }
     this.wake();
+  }
+
+  /** Points gravity along (gx, gy), and lets a strong tilt pull the word loose. */
+  setGravity(gx: number, gy: number, loosen: number) {
+    this.gx = gx;
+    this.gy = gy;
+    if (loosen <= 0.01) return;
+    for (let i = 0; i < this.words; i++) if (this.active[i]) this.disturb(i, loosen);
+    this.wake();
+  }
+
+  /** Turns sampled text into falling transient water. Returns how many particles were added. */
+  dissolve(t: Targets) {
+    const { lift, life, lifeJitter } = TUNING.dissolve;
+    let added = 0;
+    for (let k = 0; k < t.count && this.count < this.capacity; k++) {
+      const i = this.count++;
+      this.px[i] = this.hx[i] = t.hx[k];
+      this.py[i] = this.hy[i] = t.hy[k];
+      this.vx[i] = (Math.random() - 0.5) * 30 * this.unit;
+      this.vy[i] = -lift * this.unit * (0.5 + Math.random());
+      this.ex[i] = 1;
+      this.life[i] = life + Math.random() * lifeJitter;
+      this.active[i] = 1;
+      this.inTank[i] = t.hy[k] >= 0 ? 1 : 0;
+      this.accent[i] = 0;
+      added++;
+    }
+    if (added) this.wake();
+    return added;
   }
 
   wake() {
@@ -406,24 +520,42 @@ export class WaterSim {
     this.quiet = 0;
   }
 
+  /** Stirs everything a little; used once at startup to time a busy step. */
+  jostle() {
+    const v = this.spacing * 40;
+    for (let i = 0; i < this.words; i++) {
+      this.vx[i] = (Math.random() - 0.5) * v;
+      this.vy[i] = (Math.random() - 0.5) * v;
+      this.ex[i] = 0.4;
+    }
+    this.wake();
+  }
+
   /**
-   * Writes x, y, accent and "settled" (how firmly a particle sits in its
-   * letter, 0–1) for each falling-or-placed particle. Returns the count.
+   * Writes x, y, accent, settled (how firmly a particle sits in its letter,
+   * 0–1) and weight (fades transient water out) per particle. Returns the count.
    */
   writeInstances(out: Float32Array) {
-    const { px, py, hx, hy, ex, active, accent, n } = this;
+    const { px, py, hx, hy, ex, active, accent, life, words } = this;
     const s2 = 1 / (this.spacing * this.spacing * 4);
+    const fade = 1 / TUNING.dissolve.fade;
     let k = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < this.count; i++) {
       if (!active[i]) continue;
-      const dx = px[i] - hx[i];
-      const dy = py[i] - hy[i];
-      const calm = 1 - ex[i];
       out[k++] = px[i];
       out[k++] = py[i];
       out[k++] = accent[i];
-      out[k++] = calm * calm * Math.exp(-(dx * dx + dy * dy) * s2);
+      if (i < words) {
+        const dx = px[i] - hx[i];
+        const dy = py[i] - hy[i];
+        const calm = 1 - ex[i];
+        out[k++] = calm * calm * Math.exp(-(dx * dx + dy * dy) * s2);
+        out[k++] = 1;
+      } else {
+        out[k++] = 0;
+        out[k++] = Math.min(1, life[i] * fade);
+      }
     }
-    return k >> 2;
+    return k / 5;
   }
 }

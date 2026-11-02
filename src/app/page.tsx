@@ -1,23 +1,37 @@
 import { Wordmark } from "@/components/brand/wordmark";
-import { ContactForm } from "@/components/contact/contact-form";
+import { WaterCanvas } from "@/components/brand/water/water-canvas";
+import { TankContact } from "@/components/contact/tank-contact";
 import { siteConfig } from "@/config/site";
 
+/**
+ * The tank: one dark screen that doesn't scroll. The water wordmark sits in
+ * the middle, the contact form just below it, the email in a corner.
+ * Touches anywhere outside the form move the water (touch-action: none).
+ */
 export default function HomePage() {
   return (
-    <>
-      <section className="flex min-h-svh flex-col px-gutter pb-10">
-        <div className="relative grid flex-1 place-items-center">
-          <Wordmark />
-        </div>
-        <p className="type-display text-center text-heading">{siteConfig.tagline}</p>
-      </section>
+    <div className="tank fixed inset-0 touch-none overflow-hidden">
+      <WaterCanvas />
 
-      <section id="contact" aria-labelledby="contact-title" className="mx-auto w-full max-w-prose scroll-mt-8 px-gutter py-16 md:py-24">
-        <h2 id="contact-title" className="sr-only">
-          Contact
-        </h2>
-        <ContactForm />
-      </section>
-    </>
+      <div className="pointer-events-none relative grid h-full place-items-center px-gutter">
+        <div className="relative">
+          <Wordmark />
+          <section
+            id="contact"
+            aria-label="Contact"
+            className="pointer-events-auto absolute top-full left-1/2 mt-[clamp(1.75rem,6svh,4.5rem)] w-[min(30rem,calc(100vw-2*var(--spacing-gutter)))] -translate-x-1/2 touch-manipulation"
+          >
+            <TankContact />
+          </section>
+        </div>
+      </div>
+
+      <a
+        href={`mailto:${siteConfig.email}`}
+        className="type-label absolute right-gutter bottom-[max(1rem,env(safe-area-inset-bottom))] text-fg-muted transition-colors hover:text-fg"
+      >
+        {siteConfig.email}
+      </a>
+    </div>
   );
 }

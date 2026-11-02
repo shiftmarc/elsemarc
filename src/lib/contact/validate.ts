@@ -24,8 +24,8 @@ export function readFields(form: FormData): ContactFields {
 
 export function validateContact(fields: ContactFields): FieldErrors {
   const errors: FieldErrors = {};
-  if (!fields.name) errors.name = "Enter your name.";
-  else if (fields.name.length > LIMITS.name) errors.name = `Keep your name under ${LIMITS.name} characters.`;
+  // Name is optional.
+  if (fields.name.length > LIMITS.name) errors.name = `Keep your name under ${LIMITS.name} characters.`;
 
   if (!fields.email) errors.email = "Enter your email address, so we can reply.";
   else if (fields.email.length > LIMITS.email || !EMAIL.test(fields.email))

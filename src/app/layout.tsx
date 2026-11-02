@@ -37,15 +37,19 @@ export const metadata: Metadata = {
 };
 
 /**
- * Runs before first paint: if the water wordmark is likely to run, hide the
- * h1's glyphs now so the word doesn't flash before the water pours in.
- * The wordmark sets "on" or "off" once it knows; CSS reveals the text
- * after a few seconds if neither happens.
+ * Runs before first paint. Marks that JavaScript is on (the contact form
+ * then shows one step at a time), and, if the water is likely to run, hides
+ * the h1's glyphs now so the word doesn't flash before the water pours in.
+ * The tank sets "on" or "off" once it knows; CSS reveals the text after a
+ * few seconds if neither happens.
  */
-const waterFlag = `try{if("WebGL2RenderingContext"in window&&!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.dataset.water="pending"}catch(e){}`;
+const bootFlags = `try{var d=document.documentElement;d.dataset.js="";if("WebGL2RenderingContext"in window&&!matchMedia("(prefers-reduced-motion: reduce)").matches)d.dataset.water="pending"}catch(e){}`;
 
 export const viewport: Viewport = {
   themeColor: "#181816",
+  // The tank fills the screen; on Android the keyboard shrinks it instead of covering the form.
+  interactiveWidget: "resizes-content",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -57,21 +61,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: waterFlag }} />
+        <script dangerouslySetInnerHTML={{ __html: bootFlags }} />
       </head>
-      <body className="flex min-h-dvh flex-col">
+      <body>
         <a
-          href="#contact"
+          href="#contact-message"
           className="type-label sr-only z-50 bg-accent px-4 py-3 text-accent-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         >
           Skip to the contact form
         </a>
-        <main className="flex-1">{children}</main>
-        <footer className="px-gutter py-8 text-center">
-          <a href={`mailto:${siteConfig.email}`} className="type-label text-fg-muted transition-colors hover:text-fg">
-            {siteConfig.email}
-          </a>
-        </footer>
+        <main>{children}</main>
       </body>
     </html>
   );
