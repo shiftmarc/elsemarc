@@ -231,8 +231,10 @@ html[data-keyboard] .wordmark {
   gap: clamp(1.25rem, calc(var(--vv-h, 100dvh) * 0.065), 4.5rem);
 }
 
-/* With a phone keyboard open, the corner email makes way for the form. */
-html[data-keyboard] .tank-mail {
+/* With a phone keyboard open, the corner email and the line under the
+   wordmark make way for the form. */
+html[data-keyboard] .tank-mail,
+html[data-keyboard] .tank-statement {
   display: none;
 }
 
@@ -248,7 +250,8 @@ html[data-keyboard] .tank-mail {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 
-  .tank-mail {
+  .tank-mail,
+  .tank-statement {
     display: none;
   }
 
