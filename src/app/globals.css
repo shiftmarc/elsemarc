@@ -279,6 +279,22 @@ html[data-keyboard] .tank-statement {
   }
 }
 
+/* Underwater text: while the pool runs (and motion is welcome), the page's
+   text wavers gently and softens slightly, as if seen through the water.
+   Inputs get a weaker, slower version so typing stays easy to read.
+   Filters live in UnderwaterFilters. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-water="on"] :is(.tank-statement, .tank-mail, .tank-contact label, .tank-contact button, .tank-contact p, #contact [role="status"]) {
+    filter: url(#underwater);
+    text-shadow: 0 0 0.6px currentColor;
+  }
+
+  html[data-water="on"] .tank-contact :is(textarea, input) {
+    filter: url(#underwater-field);
+    text-shadow: 0 0 0.3px currentColor;
+  }
+}
+
 /* The canvas fades in once it's drawing (an undrawn WebGL canvas is black). */
 .water-canvas {
   -webkit-tap-highlight-color: transparent;

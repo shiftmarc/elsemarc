@@ -1,3 +1,4 @@
+import { UnderwaterFilters } from "@/components/brand/underwater-filters";
 import { VisibleViewport } from "@/components/brand/visible-viewport";
 import { Wordmark } from "@/components/brand/wordmark";
 import { WaterCanvas } from "@/components/brand/water/water-canvas";
@@ -18,6 +19,7 @@ export default function HomePage() {
   return (
     <div className="tank fixed inset-x-0 top-(--vv-top,0px) h-(--vv-h,100dvh) overflow-hidden">
       <VisibleViewport />
+      <UnderwaterFilters />
       <WaterCanvas />
 
       <div className="tank-content pointer-events-none relative flex h-full flex-col items-center justify-center-safe overflow-y-auto px-gutter pt-[max(1.25rem,env(safe-area-inset-top))] pb-[calc(2.75rem+env(safe-area-inset-bottom))]">

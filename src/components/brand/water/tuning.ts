@@ -29,14 +29,26 @@ export const TUNING = {
     ],
   },
 
-  /** Ripples people make. Amplitude in height units, radius in px. */
+  /** Ripples people make: clearly bigger and wider than the rain. Amplitude in height units, radius in px. */
   drops: {
-    click: { amp: 4.2, radius: 24 },
-    key: { amp: 0.7, radius: 14 },
+    click: { amp: 7, radius: 38 },
+    key: { amp: 2.2, radius: 26 },
     /** A drag leaves a drop about every `spacing` px, stronger the faster it moves. */
-    wake: { amp: 0.5, maxAmp: 1.3, radius: 15, spacing: 9, fullSpeed: 1400 },
+    wake: { amp: 1.1, maxAmp: 2.6, radius: 26, spacing: 11, fullSpeed: 1400 },
     /** A sent message lands with a line of drops along its text. */
-    sink: { amp: 1.1, radius: 18, count: 7 },
+    sink: { amp: 1.8, radius: 26, count: 7 },
+  },
+
+  /** Idle rain: small drops at random spots while nobody is interacting. */
+  rain: {
+    amp: 2.4,
+    radius: 15,
+    /** Seconds between drops (random in this range), and the chance a second drop falls with one. */
+    minGap: 0.25,
+    maxGap: 0.95,
+    pairChance: 0.2,
+    /** Seconds after the last interaction before the rain resumes. */
+    resumeAfter: 3.5,
   },
 
   /** Phone tilt sends waves rolling from the raised edge (only where no permission prompt is needed). */

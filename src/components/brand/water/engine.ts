@@ -68,6 +68,10 @@ export class PoolEngine {
   private level: [number, number] | null = null;
   private nextWave = 0;
 
+  // Idle rain: falls only after the visitor has left the water alone for a while.
+  private lastActive = -Infinity;
+  private nextRain = 0;
+
   private resizer: ResizeObserver;
 
   private constructor(canvas: HTMLCanvasElement, h1: HTMLElement, gl: WebGL2RenderingContext, callbacks: PoolCallbacks) {
@@ -214,7 +218,13 @@ export class PoolEngine {
     return [e.clientX - this.origin[0], e.clientY - this.origin[1]];
   }
 
+  /** The visitor is doing something: hold the rain off. */
+  private active() {
+    this.lastActive = this.time;
+  }
+
   private onAnyDown = (e: PointerEvent) => {
+    this.active();
     if (!e.isPrimary && e.pointerType === "mouse") return;
     const [x, y] = this.local(e);
     const d = TUNING.drops.click;
@@ -230,6 +240,7 @@ export class PoolEngine {
     }
     const [x, y] = this.local(e);
     this.drags.set(e.pointerId, { x, y, t: e.timeStamp, carry: 0 });
+    this.active();
   };
 
   /** A drag lays drops along its path: a wake, stronger the faster it goes. */
@@ -258,6 +269,7 @@ export class PoolEngine {
   };
 
   private onRipple = (e: Event) => {
+    this.active();
     const detail = (e as CustomEvent<RippleDetail>).detail;
     if (!detail) return;
     const d = TUNING.drops.key;
@@ -277,6 +289,7 @@ export class PoolEngine {
     const cx = (b.left + b.right) / 2;
     const cy = (b.top + b.bottom) / 2;
     this.message = { start: this.time, cx, cy };
+    this.active();
     const s = TUNING.drops.sink;
     for (let i = 0; i < s.count; i++) {
       const f = (i + 0.5) / s.count;
@@ -284,6 +297,21 @@ export class PoolEngine {
     }
     detail.handled = true;
   };
+
+  /** Small drops at random spots now and then, so the water is never still. */
+  private rain() {
+    const r = TUNING.rain;
+    if (this.drags.size > 0) this.active();
+    if (this.time - this.lastActive < r.resumeAfter || this.time < this.nextRain) return;
+    const [w, h] = this.size;
+    const drops = Math.random() < r.pairChance ? 2 : 1;
+    for (let i = 0; i < drops; i++) {
+      this.drops.push({ x: Math.random() * w, y: Math.random() * h, radius: r.radius, amp: r.amp * (0.6 + Math.random() * 0.7) });
+    }
+    this.nextRain = this.time + r.minGap + Math.random() * (r.maxGap - r.minGap);
+    // Visible in devtools while tuning: raindrops so far.
+    this.canvas.dataset.rain = String(Number(this.canvas.dataset.rain ?? 0) + drops);
+  }
 
   private messageState(): MessageState {
     const m = TUNING.message;
@@ -334,6 +362,7 @@ export class PoolEngine {
     const shift: [number, number] = [at[0] - this.drawnAt[0], at[1] - this.drawnAt[1]];
 
     this.applyTilt(dt);
+    this.rain();
     if (this.drops.length || this.wave) {
       this.renderer.disturb(this.drops, this.wave);
       this.drops.length = 0;

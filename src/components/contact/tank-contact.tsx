@@ -25,7 +25,7 @@ type Step = "message" | "email";
 const initialState: ContactState = { status: "idle", values: { name: "", email: "", message: "", link: "" } };
 
 const line =
-  "block w-full border-0 border-b bg-transparent px-0 text-fg transition-colors placeholder:text-fg-muted/60 focus:outline-none focus-visible:outline-none";
+  "block w-full border-0 border-b bg-transparent px-0 text-fg caret-accent transition-colors placeholder:text-fg-muted/60 focus:outline-none focus-visible:outline-none";
 
 export function TankContact() {
   const [state, action, pending] = useActionState(sendContact, initialState);
@@ -128,7 +128,7 @@ export function TankContact() {
           aria-invalid={shownMessageError ? true : undefined}
           aria-describedby={shownMessageError ? "contact-message-error" : undefined}
           enterKeyHint="send"
-          className={`${line} type-display field-sizing-content max-h-[calc(var(--vv-h,100dvh)*0.22)] min-h-[1lh] resize-none py-2 text-center text-lede leading-snug caret-accent ${
+          className={`${line} type-display field-sizing-content max-h-[calc(var(--vv-h,100dvh)*0.22)] min-h-[1lh] resize-none py-2 text-center text-lede leading-snug ${
             shownMessageError ? "border-accent" : "border-line focus:border-fg/50"
           } ${sinking ? "text-transparent transition-none" : ""}`}
         />
