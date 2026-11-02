@@ -14,16 +14,20 @@ npm run dev
 
 ## Structure
 
+A single page. The full multi-page site is archived at the git tag `v1-full-site`; its old URLs redirect to `/` (see `next.config.ts`).
+
 ```
 src/
   app/
-    layout.tsx            root: fonts, metadata, theme
+    layout.tsx            root: fonts, metadata, theme, footer
+    page.tsx              the page: hero wordmark, one line, contact form
     globals.css           design tokens (palette, themes, type scale, spacing, motion)
-    (site)/               marketing pages, wrapped in header + footer
   components/
-    brand/wordmark.tsx    the temporary wordmark (swap here)
-    layout/               header, nav, footer, placeholders
-    ui/                   primitives
-  config/site.ts          business name, tagline, navigation
-  content/                static content (demo concepts)
+    brand/wordmark.tsx    the hero wordmark (becomes the water simulation)
+    contact/              the contact form
+  config/site.ts          business name, tagline, email
+  lib/
+    contact/              validation, server action, emails
+    server/               Supabase, SMTP and request helpers (server only)
+supabase/contact.sql      table for contact messages; run once in the SQL editor
 ```

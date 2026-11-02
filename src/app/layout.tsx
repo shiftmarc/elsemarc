@@ -27,6 +27,7 @@ export const metadata: Metadata = {
     default: `${siteConfig.name} — ${siteConfig.tagline}`,
     template: `%s — ${siteConfig.name}`,
   },
+  alternates: { canonical: "/" },
   description: siteConfig.description,
   openGraph: {
     siteName: siteConfig.name,
@@ -46,7 +47,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       data-scroll-behavior="smooth"
       className={`${display.variable} ${sans.variable} ${mono.variable} theme-ink antialiased`}
     >
-      <body className="flex min-h-dvh flex-col">{children}</body>
+      <body className="flex min-h-dvh flex-col">
+        <a
+          href="#contact"
+          className="type-label sr-only z-50 bg-accent px-4 py-3 text-accent-fg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        >
+          Skip to the contact form
+        </a>
+        <main className="flex-1">{children}</main>
+        <footer className="px-gutter py-8 text-center">
+          <a href={`mailto:${siteConfig.email}`} className="type-label text-fg-muted transition-colors hover:text-fg">
+            {siteConfig.email}
+          </a>
+        </footer>
+      </body>
     </html>
   );
 }

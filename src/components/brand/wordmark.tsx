@@ -1,28 +1,18 @@
 import { siteConfig } from "@/config/site";
 
-type WordmarkProps = {
-  /** "inline" for the header, "display" for oversized footer use. */
-  size?: "inline" | "display";
-  className?: string;
-};
-
 /**
- * Temporary typographic wordmark. Replace the contents of this component
- * (or swap in an SVG) when the final identity is chosen; every placement
- * in the site renders through here.
+ * The hero wordmark: large, centred, real text, and the page's h1.
+ * Self-contained so the next stage can replace its insides with the
+ * interactive water simulation; keep the visible text (or an equivalent
+ * accessible name) when it does.
  */
-export function Wordmark({ size = "inline", className = "" }: WordmarkProps) {
-  const sizing =
-    size === "display"
-      ? "text-display-xl tracking-[-0.045em]"
-      : "text-[1.75rem] leading-none tracking-[-0.03em]";
-
+export function Wordmark() {
   return (
-    <span className={`type-display inline-flex items-baseline ${sizing} ${className}`}>
-      <span>{siteConfig.name}</span>
+    <h1 className="type-display text-center text-[clamp(4rem,0.5rem+17vw,17rem)] leading-[0.85] tracking-[-0.045em]">
+      {siteConfig.name}
       <span aria-hidden="true" className="text-accent">
         .
       </span>
-    </span>
+    </h1>
   );
 }
