@@ -12,7 +12,8 @@ type VisitKeys = { elementKey: string; positionKey: string; activeKey: string };
  *   order, and when the visitor was last active.
  * - A first-ever visit (no position stored, or an unreadable one) is water.
  * - If storage is unavailable (blocked, private modes that throw), water.
- * - ?element=name overrides it all for testing, without touching storage.
+ * - ?element=name overrides it all for testing, without touching storage
+ *   (also #element=name; case and stray characters are ignored).
  *
  * Runs before first paint as an inline script (see `elementBootScript`),
  * so it must stay self-contained: no imports or outside variables inside
@@ -20,8 +21,17 @@ type VisitKeys = { elementKey: string; positionKey: string; activeKey: string };
  */
 export function pickElement(order: readonly string[], ready: readonly string[], first: string, keys: VisitKeys, gapMs: number): string {
   try {
-    const asked = new URLSearchParams(location.search).get("element");
-    if (asked && order.indexOf(asked) >= 0) return asked;
+    // Forgiving, since it's often typed on a phone or pasted: any case of the
+    // key, in the query or the hash, and only the letters of the value count
+    // ("Earth", "earth.", "earth " and a pasted zero-width space all mean earth).
+    let asked = "";
+    for (const [key, value] of new URLSearchParams(location.search)) {
+      if (key.toLowerCase() === "element") asked = value;
+    }
+    const inHash = /(?:^#|[#&])element=([^&]*)/i.exec(location.hash);
+    if (!asked && inHash) asked = decodeURIComponent(inHash[1]);
+    const name = asked.toLowerCase().replace(/[^a-z]/g, "");
+    if (name && order.indexOf(name) >= 0) return name;
   } catch {
     // No URL to read: carry on with the rotation.
   }

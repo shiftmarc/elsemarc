@@ -32,6 +32,17 @@ export function ElementStage() {
     const root = document.documentElement;
     const name = resolveElement(root.dataset.element);
     root.dataset.element = name;
+    // Say so when a requested element can't be shown (unknown, or no code yet), rather than silently showing another.
+    const asked = /[?&#]element=([^&#]*)/i.exec(location.href)?.[1];
+    if (asked !== undefined) {
+      let wanted = asked;
+      try {
+        wanted = decodeURIComponent(asked);
+      } catch {
+        // Malformed escapes: compare as typed.
+      }
+      if (wanted.toLowerCase().replace(/[^a-z]/g, "") !== name) console.warn(`[stage] element "${wanted}" isn't available; showing ${name}.`);
+    }
     const reduced = matchMedia("(prefers-reduced-motion: reduce)");
     let stage: Stage | null = null;
     let still: (() => void) | null = null;
