@@ -34,7 +34,7 @@ export default function HomePage() {
 
       <a
         href={`mailto:${siteConfig.email}`}
-        className="tank-mail type-label absolute right-gutter bottom-[max(1rem,env(safe-area-inset-bottom))] text-fg-muted transition-colors hover:text-fg"
+        className="tank-mail absolute right-gutter bottom-[max(1rem,env(safe-area-inset-bottom))] text-fg-muted transition-colors hover:text-fg"
       >
         {siteConfig.email}
       </a>

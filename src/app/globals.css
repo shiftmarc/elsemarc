@@ -218,13 +218,26 @@ html[data-water="pending"] .wordmark [data-water-accent] {
   }
 }
 
-/* Large and centred, but never so tall the form can't fit below it. */
+/* Centred, and sized to the visible height too, so the form always fits
+   below it. The pool floor redraws its letters from the h1, so they match. */
 .wordmark {
-  font-size: min(19vw, calc(var(--vv-h, 100dvh) * 0.2), 13rem);
+  font-size: min(11.4vw, calc(var(--vv-h, 100dvh) * 0.12), 7.8rem);
 }
 
 html[data-keyboard] .wordmark {
-  font-size: min(15vw, calc(var(--vv-h, 100dvh) * 0.13), 13rem);
+  font-size: min(9vw, calc(var(--vv-h, 100dvh) * 0.078), 7.8rem);
+}
+
+/* The corner email: small caps in the display serif, written in lowercase,
+   with a little tracking, and quiet. (The fonts as served have no small-cap
+   glyphs of their own, so the browser draws them from scaled capitals.) */
+.tank-mail {
+  font-family: var(--font-newsreader), "Times New Roman", serif;
+  font-size: var(--text-small);
+  line-height: 1;
+  font-variant: small-caps;
+  text-transform: lowercase;
+  letter-spacing: 0.1em;
 }
 
 .tank-content {
