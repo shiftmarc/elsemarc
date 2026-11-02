@@ -187,10 +187,10 @@
   }
 }
 
-/* Water tank -------------------------------------------------------------
-   While the water draws the word, the h1's own glyphs are transparent (it
-   still sets the size and is read by assistive tech). If the water hasn't
-   started 3s after "pending", the still text fades back. */
+/* The pool --------------------------------------------------------------
+   While the pool draws the word on its floor, the h1's own glyphs are
+   transparent (it still sets the size and is read by assistive tech). If
+   the pool hasn't started 3s after "pending", the still text fades back. */
 html[data-water="pending"] .wordmark,
 html[data-water="pending"] .wordmark *,
 html[data-water="on"] .wordmark,
@@ -218,15 +218,67 @@ html[data-water="pending"] .wordmark [data-water-accent] {
   }
 }
 
+/* Large and centred, but never so tall the form can't fit below it. */
+.wordmark {
+  font-size: min(19vw, calc(var(--vv-h, 100dvh) * 0.2), 13rem);
+}
+
+html[data-keyboard] .wordmark {
+  font-size: min(15vw, calc(var(--vv-h, 100dvh) * 0.13), 13rem);
+}
+
+.tank-content {
+  gap: clamp(1.25rem, calc(var(--vv-h, 100dvh) * 0.065), 4.5rem);
+}
+
+/* With a phone keyboard open, the corner email makes way for the form. */
+html[data-keyboard] .tank-mail {
+  display: none;
+}
+
+/* Very short screens (a landscape phone with its keyboard open): tighter
+   padding, no corner email, and email and name side by side. */
+.tank {
+  container-type: size;
+}
+
+@container (max-height: 26rem) {
+  .tank-content {
+    padding-top: 0.5rem;
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .tank-mail {
+    display: none;
+  }
+
+  .tank-contact [data-panel="email"] {
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+    column-gap: 1.25rem;
+  }
+
+  .tank-contact [data-panel="email"] > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* The canvas fades in once it's drawing (an undrawn WebGL canvas is black). */
 .water-canvas {
   -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+
+html[data-water="on"] .water-canvas {
+  opacity: 1;
 }
 
 html:not([data-water="on"]) .water-canvas {
   pointer-events: none;
 }
 
-/* The tank page never scrolls or bounces. */
+/* The pool never scrolls or bounces. */
 html:has(.tank),
 html:has(.tank) body {
   overflow: hidden;
@@ -238,6 +290,20 @@ html[data-js] .tank-contact[data-step="message"] [data-panel="email"],
 html[data-js] .tank-contact[data-step="email"] [data-panel="message"],
 html:not([data-js]) .tank-contact [data-js-only] {
   display: none;
+}
+
+/* Each step arrives gently. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-js] .tank-contact [data-panel] {
+    animation: step-in 0.45s var(--ease-out-expo) both;
+  }
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
 }
 
 /* 5. Motion --------------------------------------------------------------- */

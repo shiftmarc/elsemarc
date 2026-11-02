@@ -1,403 +1,508 @@
 import { TUNING } from "./tuning";
 
 /**
- * Two passes, no libraries:
+ * The pool on the GPU (WebGL2), in three kinds of pass:
  *
- * 1. Splat: every particle adds a soft kernel into a "field" texture.
- *    R = depth, G = depth that is accent-coloured, B = depth that is
- *    settled in its letter.
- * 2. Glass: a full-screen pass draws the tank's faint back wall, then cuts
- *    the field at a threshold into a liquid outline. Inside it, the wall is
- *    seen through curved clear water: bent by the surface, with bright
- *    edges and a highlight, and no opaque fill. Where the water rests in
- *    its letter, the outline tightens onto the crisp letter mask.
+ * - Ripples: a height-field in a pair of half-float textures (R = height
+ *   now, G = height one step ago), stepped with the discrete wave equation.
+ *   Drops and tilt waves are added to it in their own pass.
+ * - Surface: looks down through that field (plus analytic swells) at the
+ *   pool floor: the words lie there, shifted by the water's slope, lit by
+ *   drifting caustics and glints off the surface.
+ *
+ * Coordinates are CSS px from the canvas's top-left, y down, throughout.
  */
 
-const SPLAT_VS = `#version 300 es
-layout(location = 0) in vec4 aParticle;
-layout(location = 1) in float aWeight;
-uniform vec2 uView;
-uniform float uSize;
-out vec3 vData;
-void main() {
-  vec2 clip = aParticle.xy / uView * 2.0 - 1.0;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  gl_PointSize = uSize;
-  vData = vec3(aParticle.zw, aWeight);
-}`;
+export type Colors = { base: number[]; color: number[]; accent: number[] };
 
-const SPLAT_FS = `#version 300 es
-precision highp float;
-in vec3 vData;
-uniform float uGain;
-out vec4 outColor;
-void main() {
-  vec2 d = gl_PointCoord * 2.0 - 1.0;
-  float r2 = dot(d, d);
-  if (r2 >= 1.0) discard;
-  float w = 1.0 - r2;
-  w = w * w * w * uGain * vData.z;
-  outColor = vec4(w, w * vData.x, w * vData.y, 0.0);
-}`;
+export type Drop = { x: number; y: number; radius: number; amp: number };
 
-const SURFACE_VS = `#version 300 es
-out vec2 vUv;
+/** A plane wave rising along the edge opposite `dir` (unit vector it rolls towards). */
+export type EdgeWave = { dx: number; dy: number; amp: number; width: number };
+
+/** Where the sinking message is drawn and how far along it is. */
+export type MessageState = {
+  alpha: number;
+  /** Mip bias: how blurred (deep) it looks. */
+  blur: number;
+  scale: number;
+  driftY: number;
+  waver: number;
+  cx: number;
+  cy: number;
+};
+
+const MAX_DROPS = 16;
+
+const VERT = `#version 300 es
 void main() {
+  // One triangle that covers the screen.
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  vUv = p;
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const SURFACE_FS = `#version 300 es
+const STEP = `#version 300 es
 precision highp float;
-in vec2 vUv;
-uniform sampler2D uField;
-uniform sampler2D uMask;
-uniform vec2 uCss;
-uniform float uNorm;
-uniform float uThreshold;
-uniform float uMaskLod;
-uniform float uNormalPx;
-uniform float uBump;
-uniform float uRefract;
-uniform float uRim;
-uniform float uEdge;
-uniform float uSpecular;
-uniform float uLift;
-uniform float uBody;
-uniform float uAccentBody;
-uniform float uTile;
-uniform float uWallLine;
-uniform float uWallGrain;
-uniform float uShimmer;
-uniform float uShimmerScale;
-uniform float uTime;
-uniform vec3 uBase;
-uniform vec3 uColor;
-uniform vec3 uAccent;
+uniform sampler2D uState;
+uniform float uDamping;
+uniform float uViscosity;
+uniform float uSpeed;
 out vec4 outColor;
-
-float hash(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
-}
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-
-// The tank's back wall at CSS position p (y down): a faint grid over soft grain.
-vec3 wall(vec2 p) {
-  vec2 f = fract(p / uTile);
-  vec2 d = min(f, 1.0 - f) * uTile;
-  float line = 1.0 - smoothstep(0.0, 1.0, min(d.x, d.y));
-  float grain = noise(p * 0.35) - 0.5;
-  float cloud = noise(p / (uTile * 3.0)) - 0.5;
-  return uBase * (1.0 + uWallGrain * (grain * 2.0 + cloud * 1.5)) + vec3(uWallLine * line);
-}
-
-float heightAt(vec2 uv, float s) {
-  float r = smoothstep(0.15, 1.2, texture(uField, uv).r * uNorm);
-  return mix(r, textureLod(uMask, uv, uMaskLod).a, s);
-}
-
 void main() {
-  vec2 p = vec2(vUv.x, 1.0 - vUv.y) * uCss;
-  vec3 back = wall(p);
-
-  vec4 f = texture(uField, vUv);
-  float depth = f.r * uNorm;
-  float accent = f.r > 1e-5 ? f.g / f.r : 0.0;
-  float settled = f.r > 1e-5 ? f.b / f.r : 0.0;
-  vec4 m = texture(uMask, vUv);
-  float maskAccent = m.a > 0.01 ? 1.0 - m.g : 0.0; // uploads unpremultiplied
-
-  // Where the water rests in its letter, use the letter's exact outline.
-  float s = smoothstep(0.3, 0.7, settled) * smoothstep(0.08, 0.45, depth);
-  float aa = fwidth(depth) + 0.015;
-  float liquid = smoothstep(uThreshold - aa, uThreshold + aa, depth);
-  float cover = mix(liquid, m.a, s);
-  if (cover < 0.002) { outColor = vec4(back, 1.0); return; }
-
-  // Surface normal from the smoothed depth (uv space, y up).
-  vec2 o = uNormalPx / uCss;
-  float hl = heightAt(vUv - vec2(o.x, 0.0), s);
-  float hr = heightAt(vUv + vec2(o.x, 0.0), s);
-  float hd = heightAt(vUv - vec2(0.0, o.y), s);
-  float hu = heightAt(vUv + vec2(0.0, o.y), s);
-  vec3 n = vec3((hl - hr) * uBump, (hd - hu) * uBump, 1.0);
-  vec2 q = p / uShimmerScale;
-  vec2 t = vec2(uTime, uTime * 0.63);
-  n.xy += (vec2(noise(q + t), noise(q * 1.3 - t + 17.3)) - 0.5) * uShimmer * 2.0;
-  n = normalize(n);
-
-  float acc = mix(accent, maskAccent, s);
-  vec3 tint = mix(uColor, uAccent, acc);
-
-  // Look through the water: the wall, bent by the curved surface.
-  vec3 seen = wall(p - vec2(n.x, -n.y) * uRefract);
-  vec3 glass = seen * (1.0 + uLift) + tint * uBody;
-  glass = mix(glass, tint * 0.75 + seen * 0.25, acc * uAccentBody);
-
-  // Highlights: a rim where the surface curves (brighter facing the light),
-  // a sharp glint, and a fine line where water meets air.
-  vec2 lightDir = normalize(vec2(-0.45, 0.6));
-  float slope = length(n.xy);
-  float facing = slope > 1e-4 ? dot(n.xy / slope, lightDir) : 0.0;
-  float rim = smoothstep(0.06, 0.7, slope) * (0.55 + 0.45 * facing);
-  vec3 L = normalize(vec3(lightDir, 1.0));
-  float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 60.0);
-  float edgeLine = cover * (1.0 - cover) * 4.0;
-  glass += tint * (max(rim, 0.0) * uRim + edgeLine * uEdge) + spec * uSpecular;
-
-  outColor = vec4(clamp(mix(back, glass, cover), 0.0, 1.0), 1.0);
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  ivec2 m = textureSize(uState, 0) - 1;
+  vec4 here = texelFetch(uState, c, 0);
+  // Edges reflect: a missing neighbour reads as this cell.
+  vec2 l = texelFetch(uState, clamp(c + ivec2(-1, 0), ivec2(0), m), 0).rg;
+  vec2 r = texelFetch(uState, clamp(c + ivec2(1, 0), ivec2(0), m), 0).rg;
+  vec2 d = texelFetch(uState, clamp(c + ivec2(0, -1), ivec2(0), m), 0).rg;
+  vec2 u = texelFetch(uState, clamp(c + ivec2(0, 1), ivec2(0), m), 0).rg;
+  vec2 lap = l + r + u + d - 4.0 * here.rg;
+  // Wave equation, plus a viscous term that calms the finest (grid-sized)
+  // wiggles much more than real ripples. Stable while speed <= 0.5 - 2 * viscosity.
+  float next = 2.0 * here.r - here.g + uSpeed * lap.x + uViscosity * (lap.x - lap.y);
+  outColor = vec4(next * uDamping, here.r, 0.0, 1.0);
 }`;
 
-function compile(gl: WebGL2RenderingContext, vs: string, fs: string) {
-  const program = gl.createProgram()!;
-  for (const [type, src] of [
-    [gl.VERTEX_SHADER, vs],
-    [gl.FRAGMENT_SHADER, fs],
-  ] as const) {
-    const shader = gl.createShader(type)!;
-    gl.shaderSource(shader, src);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) ?? "shader");
-    gl.attachShader(program, shader);
+const DROP = `#version 300 es
+precision highp float;
+uniform sampler2D uState;
+uniform vec2 uCell;
+uniform vec2 uSimSize;
+uniform vec4 uDrops[${MAX_DROPS}];
+uniform int uDropCount;
+uniform vec4 uWave;
+uniform float uWaveEdge;
+out vec4 outColor;
+void main() {
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  vec4 s = texelFetch(uState, c, 0);
+  vec2 p = vec2(gl_FragCoord.x, uSimSize.y - gl_FragCoord.y) * uCell;
+  float add = 0.0;
+  for (int i = 0; i < ${MAX_DROPS}; i++) {
+    if (i >= uDropCount) break;
+    vec4 d = uDrops[i];
+    float q = clamp(1.0 - dot(p - d.xy, p - d.xy) / (d.z * d.z), 0.0, 1.0);
+    add += d.w * q * q;
+  }
+  if (uWave.z != 0.0) {
+    float k = (dot(p, uWave.xy) - uWaveEdge) / uWave.w;
+    add += uWave.z * exp(-k * k);
+  }
+  outColor = vec4(s.r + add, s.g + add * 0.6, 0.0, 1.0);
+}`;
+
+const COPY = `#version 300 es
+precision highp float;
+uniform sampler2D uState;
+uniform vec2 uSimSize;
+out vec4 outColor;
+void main() {
+  outColor = texture(uState, gl_FragCoord.xy / uSimSize);
+}`;
+
+const swells = TUNING.swell.waves.length;
+
+const SURFACE = `#version 300 es
+precision highp float;
+uniform sampler2D uState;
+uniform sampler2D uFloor;
+uniform sampler2D uMessage;
+uniform vec2 uSize;
+uniform vec2 uRes;
+uniform vec2 uSimSize;
+uniform vec2 uCell;
+uniform float uTime;
+uniform vec2 uFloorShift;
+uniform vec3 uBase;
+uniform vec3 uInk;
+uniform vec3 uAccent;
+uniform vec4 uSwell[${swells}];
+uniform vec4 uMessageA;
+uniform float uMessageBlur;
+uniform float uShade;
+uniform float uFocus;
+uniform vec2 uMessageCenter;
+uniform float uDepth;
+uniform float uInkMix;
+uniform vec4 uCaustic;
+uniform vec4 uLight;
+uniform float uVignette;
+out vec4 outColor;
+
+// Integer hash: exact, so neighbouring noise cells always agree (float hashes can seam).
+float hash(ivec2 c) {
+  uvec2 q = uvec2(c) * uvec2(1597334673u, 3812015801u);
+  uint n = (q.x ^ q.y) * 1597334673u;
+  n ^= n >> 16;
+  n *= 2246822519u;
+  n ^= n >> 13;
+  return float(n) * (1.0 / 4294967295.0);
+}
+
+float noise(vec2 p) {
+  vec2 fl = floor(p);
+  ivec2 i = ivec2(fl);
+  vec2 f = p - fl;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + ivec2(1, 0)), u.x), mix(hash(i + ivec2(0, 1)), hash(i + ivec2(1, 1)), u.x), u.y);
+}
+
+// Bright, thin, wandering lines: ridges of domain-warped noise.
+float causticLayer(vec2 p, float t) {
+  vec2 w = vec2(noise(p * 0.55 + vec2(t * 0.6, -t * 0.4)), noise(p * 0.55 + vec2(5.2 - t * 0.5, 1.3 + t * 0.3)));
+  float n = noise(p + w * 1.7 + vec2(t * 0.25, t * 0.15));
+  float ridge = 1.0 - abs(n * 2.0 - 1.0);
+  return pow(ridge, 7.0);
+}
+
+float caustics(vec2 p, float t) {
+  vec2 q = p / uCaustic.x;
+  float a = causticLayer(q, t);
+  float b = causticLayer(q * 1.41 + vec2(3.7, 8.1), -t * 0.83);
+  return a * 0.65 + b * 0.55 + a * b * 1.4;
+}
+
+float height(vec2 uv) { return texture(uState, uv).r; }
+
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) * (uSize / uRes);
+
+  // The surface's slope: ripples from the field, plus slow swells.
+  vec2 suv = vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
+  vec2 e = 1.0 / uSimSize;
+  float hc = height(suv);
+  float hl = height(suv - vec2(e.x, 0.0));
+  float hr = height(suv + vec2(e.x, 0.0));
+  float hu = height(suv + vec2(0.0, e.y)); // up the screen
+  float hd = height(suv - vec2(0.0, e.y));
+  vec2 slope = vec2(hr - hl, hd - hu) / (2.0 * uCell);
+  float bend = (hl + hr + hu + hd - 4.0 * hc) / (uCell.x * uCell.y);
+  for (int i = 0; i < ${swells}; i++) {
+    vec4 s = uSwell[i]; // direction xy (scaled by wavenumber), slope, angular speed
+    slope += normalize(s.xy) * s.z * cos(dot(p, s.xy) - s.w * uTime);
+  }
+
+  // What's on the floor, seen through it.
+  vec2 seen = p - slope * uDepth;
+  vec2 fuv = (seen - uFloorShift) / uSize;
+  vec4 floorInk = texture(uFloor, fuv);
+  // The message lies a little deeper: smaller, drifted down, and bent more by the water.
+  vec2 mq = seen - slope * uDepth * uMessageA.w - vec2(0.0, uMessageA.z);
+  vec2 mp = (mq - uMessageCenter) / uMessageA.y + uMessageCenter;
+  float message = texture(uMessage, mp / uSize, uMessageBlur).r * uMessageA.x;
+
+  float ink = clamp(floorInk.r + message, 0.0, 1.0);
+  float accent = floorInk.g;
+  vec3 col = uBase;
+  col = mix(col, uInk, ink * uInkMix);
+  col = mix(col, uAccent, accent * 0.95);
+
+  // Light on the floor: drifting caustics, focused further where ripples bend it.
+  float c = caustics(seen, uTime * uCaustic.y);
+  float light = c * mix(uCaustic.z, uCaustic.w, max(ink, accent)) + max(0.0, -bend) * uFocus;
+  col += uInk * light;
+  col *= 1.0 + clamp(-bend * 6.0, -0.25, 0.4) * 0.5;
+
+  // Slopes facing the light are brighter, facing away darker: ripples read as rings.
+  float facing = dot(slope, normalize(vec2(-0.55, -0.83)));
+  col += uInk * clamp(facing * uShade, -0.05, 0.12);
+
+  // The surface itself: glints on ripples, a sheen on slopes.
+  vec3 n = normalize(vec3(-slope * 2.2, 1.0));
+  vec3 l = normalize(vec3(-0.45, 0.62, 0.64));
+  float spec = pow(max(dot(reflect(-l, n), vec3(0.0, 0.0, 1.0)), 0.0), uLight.y);
+  col += uInk * (spec * uLight.x + clamp(length(slope) * uLight.z, 0.0, 0.08));
+
+  vec2 v = p / uSize - 0.5;
+  col *= 1.0 - uVignette * dot(v, v) * 1.6;
+  col += (hash(ivec2(gl_FragCoord.xy) + ivec2(int(uTime * 60.0) * 7919, 0)) - 0.5) / 255.0;
+  outColor = vec4(col, 1.0);
+}`;
+
+type Target = { tex: WebGLTexture; fbo: WebGLFramebuffer };
+
+function compile(gl: WebGL2RenderingContext, type: number, source: string) {
+  const shader = gl.createShader(type)!;
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(shader);
     gl.deleteShader(shader);
+    throw new Error(`Shader: ${log}`);
   }
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "link");
-  return program;
+  return shader;
 }
 
-function uniforms(gl: WebGL2RenderingContext, program: WebGLProgram) {
-  const map: Record<string, WebGLUniformLocation | null> = {};
-  const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) as number;
-  for (let i = 0; i < count; i++) {
-    const name = gl.getActiveUniform(program, i)!.name;
-    map[name] = gl.getUniformLocation(program, name);
+class Program {
+  program: WebGLProgram;
+  private locations = new Map<string, WebGLUniformLocation | null>();
+  constructor(
+    private gl: WebGL2RenderingContext,
+    fragment: string,
+  ) {
+    const vs = compile(gl, gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, fragment);
+    this.program = gl.createProgram()!;
+    gl.attachShader(this.program, vs);
+    gl.attachShader(this.program, fs);
+    gl.linkProgram(this.program);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error(`Link: ${gl.getProgramInfoLog(this.program)}`);
   }
-  return map;
+  use() {
+    this.gl.useProgram(this.program);
+    return this;
+  }
+  u(name: string) {
+    if (!this.locations.has(name)) this.locations.set(name, this.gl.getUniformLocation(this.program, name));
+    return this.locations.get(name)!;
+  }
 }
 
-type RGB = [number, number, number];
-export type Colors = { base: RGB; color: RGB; accent: RGB };
-
-/** Floats per particle in the instance buffer: x, y, accent, settled, weight. */
-export const STRIDE = 5;
-
-export class WaterRenderer {
+export class PoolRenderer {
   private gl: WebGL2RenderingContext;
-  private splat: WebGLProgram;
-  private surface: WebGLProgram;
-  private su: Record<string, WebGLUniformLocation | null>;
-  private fu: Record<string, WebGLUniformLocation | null>;
   private vao: WebGLVertexArrayObject;
-  private emptyVao: WebGLVertexArrayObject;
-  private buffer: WebGLBuffer;
-  private capacity = 0;
-  private fieldTex: WebGLTexture;
-  private fbo: WebGLFramebuffer;
-  private maskTex: WebGLTexture;
-  private halfFloat: boolean;
-  private maxPoint: number;
+  private step: Program;
+  private drop: Program;
+  private copy: Program;
+  private surface: Program;
+  private state: Target[] = [];
+  private floor: WebGLTexture;
+  private message: WebGLTexture;
+  private colors: Colors = { base: [0.09, 0.09, 0.09], color: [1, 1, 1], accent: [1, 0.3, 0.2] };
+  private dropData = new Float32Array(MAX_DROPS * 4);
 
-  private css = [1, 1];
-  private fieldSize = [1, 1];
-  private fieldScale = 1;
-  private fontSize = 100;
-  private maskLod = 0;
-  private pointSize = 1;
-  private gain = 1;
-  private norm = 1;
-  private colors: Colors = { base: [0.094, 0.094, 0.086], color: [0.96, 0.95, 0.92], accent: [0.89, 0.31, 0.17] };
+  private size = [1, 1];
+  private res = [1, 1];
+  private simSize = [1, 1];
+  private cell = [1, 1];
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
-    this.splat = compile(gl, SPLAT_VS, SPLAT_FS);
-    this.surface = compile(gl, SURFACE_VS, SURFACE_FS);
-    this.su = uniforms(gl, this.splat);
-    this.fu = uniforms(gl, this.surface);
-
-    this.buffer = gl.createBuffer()!;
+    // Ripples need a float colour target; without one the still version shows.
+    if (!gl.getExtension("EXT_color_buffer_float") && !gl.getExtension("EXT_color_buffer_half_float")) {
+      throw new Error("No float render targets");
+    }
     this.vao = gl.createVertexArray()!;
-    gl.bindVertexArray(this.vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, STRIDE * 4, 0);
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, STRIDE * 4, 16);
-    this.emptyVao = gl.createVertexArray()!;
-    gl.bindVertexArray(null);
-
-    this.halfFloat = !!gl.getExtension("EXT_color_buffer_float") || !!gl.getExtension("EXT_color_buffer_half_float");
-    this.maxPoint = (gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) as Float32Array)[1] || 64;
-
-    this.fieldTex = gl.createTexture()!;
-    this.fbo = gl.createFramebuffer()!;
-    this.maskTex = gl.createTexture()!;
+    this.step = new Program(gl, STEP);
+    this.drop = new Program(gl, DROP);
+    this.copy = new Program(gl, COPY);
+    this.surface = new Program(gl, SURFACE);
+    this.floor = this.texture();
+    this.message = this.texture();
+    this.upload(this.floor, null);
+    this.upload(this.message, null);
   }
 
   setColors(colors: Colors) {
     this.colors = colors;
   }
 
-  /**
-   * Sizes the drawing buffer and the field for a canvas of `cssW`×`cssH`,
-   * with particles `spacing` apart and `density` per px², for a word of `fontSize`.
-   */
-  configure(cssW: number, cssH: number, pixelRatio: number, spacing: number, density: number, fontSize: number) {
+  /** Sizes the canvas and the ripple field, keeping the ripples already there. */
+  resize(cssW: number, cssH: number, pixelRatio: number) {
     const gl = this.gl;
-    const canvas = gl.canvas as HTMLCanvasElement;
-    canvas.width = Math.max(1, Math.round(cssW * pixelRatio));
-    canvas.height = Math.max(1, Math.round(cssH * pixelRatio));
-    this.css = [cssW, cssH];
-    this.fontSize = fontSize;
-
-    // A few field texels per particle is enough; the glass pass smooths the rest.
-    this.fieldScale = Math.min(1, Math.max(0.35, 2.5 / spacing));
-    const fw = Math.max(1, Math.round(cssW * this.fieldScale));
-    const fh = Math.max(1, Math.round(cssH * this.fieldScale));
-    this.fieldSize = [fw, fh];
-
-    const radius = spacing * TUNING.render.splatRadius;
-    this.pointSize = Math.min(this.maxPoint, Math.max(2, radius * 2 * this.fieldScale));
-    const effective = this.pointSize / (2 * this.fieldScale);
-    // Resting depth inside a letter: density × ∫(1−r²)³ over the disc = density·πR²/4.
-    const rest = (density * Math.PI * effective * effective) / 4;
-    const store = this.halfFloat ? 1 : 1 / 3; // 8-bit fields saturate at 1: store a third
-    this.gain = store / rest;
-    this.norm = 1 / store;
-    // The resting letters curve over `roundness` of the font size.
-    this.maskLod = Math.max(0, Math.log2(Math.max(1, TUNING.render.roundness * fontSize * pixelRatio)));
-
-    this.allocateField(fw, fh);
-  }
-
-  private allocateField(fw: number, fh: number) {
-    const gl = this.gl;
-    const tryFormat = (half: boolean) => {
-      gl.bindTexture(gl.TEXTURE_2D, this.fieldTex);
-      if (half) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, fw, fh, 0, gl.RGBA, gl.HALF_FLOAT, null);
-      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fw, fh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.fieldTex, 0);
-      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      return ok;
-    };
-    if (this.halfFloat && !tryFormat(true)) {
-      this.halfFloat = false;
-      this.gain /= 3;
-      this.norm *= 3;
-    }
-    if (!this.halfFloat && !tryFormat(false)) throw new Error("No renderable field format");
-  }
-
-  /** Uploads the crisp letter mask (white letters, red accent, transparent elsewhere). */
-  setMask(mask: HTMLCanvasElement) {
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, mask);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  }
-
-  /** Redraws the field from `count` particles in `data` (STRIDE floats each). */
-  splatField(data: Float32Array, count: number) {
-    const gl = this.gl;
-    if (count > 0) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-      if (count * STRIDE > this.capacity) {
-        this.capacity = data.length;
-        gl.bufferData(gl.ARRAY_BUFFER, this.capacity * 4, gl.DYNAMIC_DRAW);
+    this.size = [cssW, cssH];
+    this.res = [Math.max(1, Math.round(cssW * pixelRatio)), Math.max(1, Math.round(cssH * pixelRatio))];
+    const cell = TUNING.sim.cell;
+    const simW = Math.max(8, Math.ceil(cssW / cell));
+    const simH = Math.max(8, Math.ceil(cssH / cell));
+    this.cell = [cssW / simW, cssH / simH];
+    const old = this.state;
+    if (simW !== this.simSize[0] || simH !== this.simSize[1] || old.length === 0) {
+      const next = [this.target(simW, simH), this.target(simW, simH)];
+      for (const t of next) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error("Ripple target incomplete");
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        if (old.length) {
+          gl.viewport(0, 0, simW, simH);
+          this.copy.use();
+          this.bind(0, old[0].tex);
+          gl.uniform1i(this.copy.u("uState"), 0);
+          gl.uniform2f(this.copy.u("uSimSize"), simW, simH);
+          this.draw();
+        }
       }
-      // Length must be non-zero: WebGL2 reads 0 as "to the end of data".
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, count * STRIDE);
+      for (const t of old) this.free(t);
+      this.state = next;
+      this.simSize = [simW, simH];
     }
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-    gl.viewport(0, 0, this.fieldSize[0], this.fieldSize[1]);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    if (count > 0) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.ONE, gl.ONE);
-      gl.useProgram(this.splat);
-      gl.uniform2f(this.su.uView, this.css[0], this.css[1]);
-      gl.uniform1f(this.su.uSize, this.pointSize);
-      gl.uniform1f(this.su.uGain, this.gain);
-      gl.bindVertexArray(this.vao);
-      gl.drawArrays(gl.POINTS, 0, count);
-      gl.bindVertexArray(null);
-      gl.disable(gl.BLEND);
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.canvas.width = this.res[0];
+    gl.canvas.height = this.res[1];
   }
 
-  /** Draws the tank: back wall and glass water, from the current field. */
-  drawSurface(time: number) {
+  /** The pool floor: R = logo letters, G = the accent. Drawn at the canvas's pixel size. */
+  setFloor(source: TexImageSource) {
+    this.upload(this.floor, source);
+  }
+
+  /** The sinking message's letters, in R. */
+  setMessage(source: TexImageSource | null) {
+    const gl = this.gl;
+    this.upload(this.message, source);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.generateMipmap(gl.TEXTURE_2D);
+  }
+
+  /** Adds drops and (optionally) one tilt wave to the ripple field. */
+  disturb(drops: Drop[], wave: EdgeWave | null) {
+    const gl = this.gl;
+    let start = 0;
+    while (start < drops.length || wave) {
+      const batch = drops.slice(start, start + MAX_DROPS);
+      start += MAX_DROPS;
+      this.dropData.fill(0);
+      batch.forEach((d, i) => this.dropData.set([d.x, d.y, d.radius, d.amp], i * 4));
+      const p = this.drop.use();
+      this.bind(0, this.state[0].tex);
+      gl.uniform1i(p.u("uState"), 0);
+      gl.uniform2f(p.u("uCell"), this.cell[0], this.cell[1]);
+      gl.uniform2f(p.u("uSimSize"), this.simSize[0], this.simSize[1]);
+      gl.uniform4fv(p.u("uDrops"), this.dropData);
+      gl.uniform1i(p.u("uDropCount"), batch.length);
+      if (wave) {
+        const [w, h] = this.size;
+        // The raised edge: the corner furthest "uphill" along the wave's direction.
+        const edge = Math.min(0, wave.dx * w, wave.dy * h, wave.dx * w + wave.dy * h);
+        gl.uniform4f(p.u("uWave"), wave.dx, wave.dy, wave.amp, wave.width);
+        gl.uniform1f(p.u("uWaveEdge"), edge);
+        wave = null;
+      } else gl.uniform4f(p.u("uWave"), 0, 0, 0, 1);
+      this.into(this.state[1]);
+      this.draw();
+      this.swap();
+    }
+  }
+
+  /** Advances the ripples `n` steps. */
+  advance(n: number) {
+    const gl = this.gl;
+    const p = this.step.use();
+    gl.uniform1f(p.u("uDamping"), TUNING.sim.damping);
+    gl.uniform1f(p.u("uViscosity"), TUNING.sim.viscosity);
+    gl.uniform1f(p.u("uSpeed"), TUNING.sim.speed);
+    gl.uniform1i(p.u("uState"), 0);
+    for (let i = 0; i < n; i++) {
+      this.bind(0, this.state[0].tex);
+      this.into(this.state[1]);
+      this.draw();
+      this.swap();
+    }
+  }
+
+  /** Draws the pool to the canvas. */
+  render(time: number, floorShift: [number, number], msg: MessageState) {
     const gl = this.gl;
     const r = TUNING.render;
-    const font = this.fontSize;
-    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-    gl.useProgram(this.surface);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.fieldTex);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
-    const u = this.fu;
-    gl.uniform1i(u.uField, 0);
-    gl.uniform1i(u.uMask, 1);
-    gl.uniform2f(u.uCss, this.css[0], this.css[1]);
-    gl.uniform1f(u.uNorm, this.norm);
-    gl.uniform1f(u.uThreshold, r.threshold);
-    gl.uniform1f(u.uMaskLod, this.maskLod);
-    gl.uniform1f(u.uNormalPx, Math.max(1.5, r.roundness * font));
-    gl.uniform1f(u.uBump, r.bump);
-    gl.uniform1f(u.uRefract, r.refraction * font);
-    gl.uniform1f(u.uRim, r.rim);
-    gl.uniform1f(u.uEdge, r.edge);
-    gl.uniform1f(u.uSpecular, r.specular);
-    gl.uniform1f(u.uLift, r.lift);
-    gl.uniform1f(u.uBody, r.body);
-    gl.uniform1f(u.uAccentBody, r.accentBody);
-    gl.uniform1f(u.uTile, Math.max(12, r.wallTile * font));
-    gl.uniform1f(u.uWallLine, r.wallLine);
-    gl.uniform1f(u.uWallGrain, r.wallGrain);
-    gl.uniform1f(u.uShimmer, r.shimmer);
-    gl.uniform1f(u.uShimmerScale, Math.max(8, font * r.shimmerScale));
-    gl.uniform1f(u.uTime, time * r.shimmerSpeed);
-    gl.uniform3fv(u.uBase, this.colors.base);
-    gl.uniform3fv(u.uColor, this.colors.color);
-    gl.uniform3fv(u.uAccent, this.colors.accent);
-    gl.bindVertexArray(this.emptyVao);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.res[0], this.res[1]);
+    const p = this.surface.use();
+    this.bind(0, this.state[0].tex);
+    this.bind(1, this.floor);
+    this.bind(2, this.message);
+    gl.uniform1i(p.u("uState"), 0);
+    gl.uniform1i(p.u("uFloor"), 1);
+    gl.uniform1i(p.u("uMessage"), 2);
+    gl.uniform2f(p.u("uSize"), this.size[0], this.size[1]);
+    gl.uniform2f(p.u("uRes"), this.res[0], this.res[1]);
+    gl.uniform2f(p.u("uSimSize"), this.simSize[0], this.simSize[1]);
+    gl.uniform2f(p.u("uCell"), this.cell[0], this.cell[1]);
+    gl.uniform1f(p.u("uTime"), time);
+    gl.uniform2f(p.u("uFloorShift"), floorShift[0], floorShift[1]);
+    gl.uniform3fv(p.u("uBase"), this.colors.base);
+    gl.uniform3fv(p.u("uInk"), this.colors.color);
+    gl.uniform3fv(p.u("uAccent"), this.colors.accent);
+    const swell = new Float32Array(swells * 4);
+    TUNING.swell.waves.forEach((w, i) => {
+      const k = (2 * Math.PI) / w.length;
+      const a = (w.angle * Math.PI) / 180;
+      swell.set([Math.cos(a) * k, Math.sin(a) * k, w.slope, k * w.speed], i * 4);
+    });
+    gl.uniform4fv(p.u("uSwell"), swell);
+    gl.uniform4f(p.u("uMessageA"), msg.alpha, msg.scale, msg.driftY, msg.waver);
+    gl.uniform2f(p.u("uMessageCenter"), msg.cx, msg.cy);
+    gl.uniform1f(p.u("uMessageBlur"), msg.blur);
+    gl.uniform1f(p.u("uShade"), r.shade);
+    gl.uniform1f(p.u("uFocus"), r.focus);
+    gl.uniform1f(p.u("uDepth"), r.depth);
+    gl.uniform1f(p.u("uInkMix"), r.ink);
+    gl.uniform4f(p.u("uCaustic"), r.causticSize, r.causticSpeed, r.caustic, r.causticInk);
+    gl.uniform4f(p.u("uLight"), r.specular, r.shininess, r.sheen, 0);
+    gl.uniform1f(p.u("uVignette"), r.vignette);
+    this.draw();
   }
 
   dispose() {
     const gl = this.gl;
-    gl.deleteProgram(this.splat);
-    gl.deleteProgram(this.surface);
-    gl.deleteBuffer(this.buffer);
+    for (const t of this.state) this.free(t);
+    this.state = [];
+    gl.deleteTexture(this.floor);
+    gl.deleteTexture(this.message);
+    gl.deleteProgram(this.step.program);
+    gl.deleteProgram(this.drop.program);
+    gl.deleteProgram(this.copy.program);
+    gl.deleteProgram(this.surface.program);
     gl.deleteVertexArray(this.vao);
-    gl.deleteVertexArray(this.emptyVao);
-    gl.deleteTexture(this.fieldTex);
-    gl.deleteTexture(this.maskTex);
-    gl.deleteFramebuffer(this.fbo);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private draw() {
+    const gl = this.gl;
+    gl.bindVertexArray(this.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  private into(t: Target) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.viewport(0, 0, this.simSize[0], this.simSize[1]);
+  }
+
+  private swap() {
+    this.state.reverse();
+  }
+
+  private bind(unit: number, tex: WebGLTexture) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+  }
+
+  private texture() {
+    const gl = this.gl;
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+
+  private upload(tex: WebGLTexture, source: TexImageSource | null) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    if (source) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  }
+
+  private target(w: number, h: number): Target {
+    const gl = this.gl;
+    const tex = this.texture();
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    const fbo = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return { tex, fbo };
+  }
+
+  private free(t: Target) {
+    this.gl.deleteFramebuffer(t.fbo);
+    this.gl.deleteTexture(t.tex);
   }
 }

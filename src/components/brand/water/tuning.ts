@@ -1,180 +1,103 @@
 /**
- * Every adjustable number in the water tank, in one place.
- *
- * Units: "spacing" is the distance between neighbouring particles at rest
- * (it shrinks as the particle count grows). "font" is the wordmark's CSS
- * font size. Physics values marked "@200px" are for a 200px wordmark and
- * scale with the font size, so phone and desktop feel alike.
+ * Every number that shapes the pool, in one place. Distances are CSS px,
+ * times are seconds. Heights are in the ripple field's own units: a
+ * height difference of 1 across 1 px is a slope of 1.
  */
 export const TUNING = {
-  /** How the word arrives on load. */
-  pour: {
-    /** Seconds before the first water falls. */
-    delay: 0.3,
-    /** Seconds the pour takes to sweep from the first letter to the last. */
-    sweep: 0.85,
-    /** Random extra delay per particle, in seconds. Higher is a looser, rainier pour. */
-    jitter: 0.01,
-    /** How drawn-out the falling water is: 1 falls as the word's own shape, 2 as a column twice as tall. */
-    stretch: 1.05,
-    /** Sideways scatter of the falling water, in multiples of spacing. */
-    scatter: 0.6,
+  /** The ripple height-field (simulated on the GPU). */
+  sim: {
+    /** CSS px per simulation cell. Smaller is finer and costlier. */
+    cell: 3.5,
+    /** Simulation steps per 1/60 s. Waves travel about √speed cells per step. */
+    stepsPer60: 4,
+    /** Wave speed² in cells per step (the Courant number squared). Must stay ≤ 0.5 − 2 × viscosity. */
+    speed: 0.34,
+    /** Height kept per step (1 = waves never die down). */
+    damping: 0.997,
+    /** Calms grid-sized wiggles (numerical noise) far more than real ripples. */
+    viscosity: 0.04,
   },
 
-  /** How many particles, and when to use fewer. */
-  particles: {
-    /** Target counts by device tier. */
-    budget: { high: 5200, mid: 3000, low: 1700 },
-    /** Never pack particles closer than this many CSS px. */
-    minSpacing: 1.6,
-    /** Each downgrade multiplies the count by this. */
-    downgradeFactor: 0.65,
-    /** At most this many downgrades. */
-    maxDowngrades: 2,
-    /** Startup check: one physics step slower than this (ms) means use fewer particles. */
-    stepBudgetMs: 5,
-    /** While running: average frame interval above this (ms) for 2s means use fewer. */
-    slowFrameMs: 24,
+  /** Always-on motion that needs no input. */
+  swell: {
+    /** Each long, slow wave: direction (degrees), wavelength (px), slope, speed (px/s). */
+    waves: [
+      { angle: 18, length: 820, slope: 0.018, speed: 34 },
+      { angle: 113, length: 560, slope: 0.014, speed: 27 },
+      { angle: 241, length: 390, slope: 0.011, speed: 22 },
+      { angle: 302, length: 240, slope: 0.007, speed: 18 },
+    ],
   },
 
-  /** The liquid's motion. */
-  fluid: {
-    /** Neighbour radius, in multiples of spacing. */
-    radius: 2.2,
-    /** Pressure stiffness. Higher keeps the water from compressing. */
-    stiffness: 0.035,
-    /** Near-pressure stiffness. Keeps particles from clumping. */
-    nearStiffness: 0.12,
-    /** Strength of the pull between particles (surface tension), 0–1 of stiffness. Above ~0.3 it clumps into beads. */
-    cohesion: 0.1,
-    /** Viscosity, 0–1: how much neighbours move together. Higher is syrupy, lower is spray. */
-    viscosity: 0.25,
-    /** Gravity on disturbed water, px/s² @200px. */
-    gravity: 1800,
-    /** Velocity kept per step (1 = no air drag). */
-    drag: 0.996,
-    /** Velocity along the floor kept when sliding on it. */
-    floorFriction: 0.9,
+  /** Ripples people make. Amplitude in height units, radius in px. */
+  drops: {
+    click: { amp: 4.2, radius: 24 },
+    key: { amp: 0.7, radius: 14 },
+    /** A drag leaves a drop about every `spacing` px, stronger the faster it moves. */
+    wake: { amp: 0.5, maxAmp: 1.3, radius: 15, spacing: 9, fullSpeed: 1400 },
+    /** A sent message lands with a line of drops along its text. */
+    sink: { amp: 1.1, radius: 18, count: 7 },
   },
 
-  /** How the water remembers the word. */
-  recall: {
-    /** Fraction of the way home calm water moves each step (60/s). Higher returns faster. */
-    rate: 0.05,
-    /** Fastest water flows home, px/s @200px. Keeps distant water flowing, not snapping. */
-    maxSpeed: 650,
-    /** Momentum calm water loses per step, 0–1. Lower sloshes past its place, higher creeps in. */
-    damping: 0.06,
-    /** Seconds for touched water to calm down and start drawing back. */
-    calm: 1.6,
-  },
-
-  /** Drag and tap. */
-  pointer: {
-    /** Reach of a drag or tap, in multiples of the font size. */
-    radius: 0.5,
-    /** Smallest reach in CSS px (fingers). */
-    minRadius: 28,
-    /** How much of the pointer's velocity the water picks up, 0–1. */
-    push: 0.6,
-    /** Fastest a drag can move water, px/s @200px. */
-    maxSpeed: 1100,
-    /** How much a drag lets go of the word (and lets gravity in), 0–1. */
-    disturb: 0.7,
-    /** Outward splash speed from a tap, px/s @200px. */
-    splash: 420,
-    /** Lift (against gravity) added to a tap splash, px/s @200px. */
-    splashLift: 360,
-  },
-
-  /** Hold and swipe. */
-  gestures: {
-    /** A pressed pointer slower than this (CSS px/s) for `holdDelay` seconds is holding. */
-    holdSpeed: 80,
-    holdDelay: 0.16,
-    /** Reach of a hold, in multiples of the font size. */
-    holdRadius: 1.6,
-    /** Pull of a hold, px/s² @200px. */
-    holdStrength: 5200,
-    /** A swipe faster than this many screen short-sides per second (but at least `swipeMinSpeed` CSS px/s)… */
-    swipeSpeed: 2.1,
-    swipeMinSpeed: 1100,
-    /** …and longer than this fraction of the screen's short side collapses the word. */
-    swipeDistance: 0.22,
-    /** Seconds the collapsed pool rests on the floor before it starts climbing back… */
-    poolTime: 2.4,
-    /** …and roughly how long the climb back into the word takes. */
-    climbTime: 2.2,
-    /** A tap moves less than this (CSS px) and lasts less than `tapTime` seconds. */
-    tapMove: 10,
-    tapTime: 0.3,
-  },
-
-  /** Phone tilt (only where the browser allows motion without a permission prompt). */
+  /** Phone tilt sends waves rolling from the raised edge (only where no permission prompt is needed). */
   tilt: {
-    /** Degrees from upright before the word starts to slide. */
-    start: 22,
-    /** Degrees from upright where it lets go as far as it will. */
-    full: 60,
-    /** How far a full tilt lets go of the word, 0–1. */
-    loosen: 0.85,
-    /** Smoothing of the sensor, per second. Higher follows the hand more tightly. */
-    follow: 6,
+    /** How quickly "level" catches up with how the phone is held (s). */
+    settle: 2.5,
+    /** Tilt change (in g) below which nothing happens, and at which waves are strongest. */
+    start: 0.07,
+    full: 0.45,
+    /** Wave height and width (px) at full tilt. */
+    amp: 2.4,
+    width: 46,
+    /** Seconds between waves at the start and at full tilt. */
+    slowEvery: 1.3,
+    fastEvery: 0.45,
   },
 
-  /** Sent text turning into water. */
-  dissolve: {
-    /** Most particles a message can become. */
-    maxParticles: 900,
-    /** Seconds the message's water lasts, plus up to `lifeJitter` more. */
-    life: 2.6,
-    lifeJitter: 0.8,
-    /** Seconds it takes to fade at the end. */
-    fade: 1.2,
-    /** Little hop as the words let go, px/s @200px. */
-    lift: 60,
-  },
-
-  /** The glass. */
+  /** How the floor is seen through the water. */
   render: {
-    /** Pixel ratio cap by tier; lower is cheaper. */
-    maxPixelRatio: { high: 2, mid: 2, low: 1.5 },
-    /** Each particle's reach on screen, in multiples of spacing. Higher joins water into
-     *  larger smooth bodies; lower lets it break into droplets (below ~2 it reads as dots). */
-    splatRadius: 3.4,
-    /** Liquid edge, as a fraction of resting depth (0.5 sits on the letter outline). */
-    threshold: 0.5,
-    /** How far in from its edge the water's surface curves, in multiples of the font size. */
-    roundness: 0.035,
-    /** Steepness of that curve. Higher bends the back wall more and widens the highlights. */
-    bump: 2.2,
-    /** How far the water bends the back wall, in multiples of the font size. */
-    refraction: 0.09,
-    /** Brightness of the edge highlights, 0–1. */
-    rim: 0.6,
-    /** Brightness of the fine outline where water meets air, 0–1. */
-    edge: 0.55,
-    /** Sharp highlight from the light, 0–1. */
-    specular: 0.35,
-    /** How much brighter the wall looks through still water, 0–1. Keep low: no opaque fill. */
-    lift: 0.06,
-    /** Colour of the water body itself, 0–1. 0 is perfectly clear. */
-    body: 0.025,
-    /** How strongly the accent (the dot) tints the glass, 0–1. */
-    accentBody: 0.45,
-    /** Back-wall grid size, in multiples of the font size (at least 12px). */
-    wallTile: 0.17,
-    /** Back-wall grid line brightness, 0–1. */
-    wallLine: 0.035,
-    /** Back-wall grain, 0–1. */
-    wallGrain: 0.03,
-    /** Resting shimmer strength. 0 turns it off. */
-    shimmer: 0.05,
-    /** Shimmer drift speed. */
-    shimmerSpeed: 0.12,
-    /** Shimmer ripple size, in multiples of the font size. */
-    shimmerScale: 0.3,
+    /** Highest device pixel ratio drawn, and most pixels per frame (drops towards 1x on big screens). */
+    maxPixelRatio: 2,
+    pixelBudget: 3_200_000,
+    /** Water depth in px: how far a slope shifts what's seen on the floor. */
+    depth: 95,
+    /** Floor text: how much of the text colour shows through. */
+    ink: 0.86,
+    /** Drifting caustic light: size (px), drift speed, strength on the floor and on the letters. */
+    causticSize: 150,
+    causticSpeed: 0.22,
+    caustic: 0.075,
+    causticInk: 0.16,
+    /** Extra light where ripples focus it (per unit of surface curvature). */
+    focus: 1.7,
+    /** Light and shade on slopes facing towards or away from the light (makes ripples visible). */
+    shade: 2.4,
+    /** Glints off the surface, and the fresnel sheen of slopes. */
+    specular: 0.55,
+    shininess: 48,
+    sheen: 0.35,
+    /** Darkening towards the corners. */
+    vignette: 0.32,
+  },
+
+  /** A sent message sinks to the floor, wavers like the logo, then fades. */
+  message: {
+    sink: 0.9,
+    rest: 2.2,
+    fade: 1.4,
+    /** How much smaller it ends up (further away), and how far it drifts down (px). */
+    shrink: 0.06,
+    drift: 16,
+    /** Opacity and blur (mip levels) once it lies on the floor, and how much more it wavers than the logo. */
+    opacity: 0.32,
+    blur: 2.2,
+    waver: 1.8,
+  },
+
+  /** Frame pacing: skip frames on 120 Hz screens, and draw fewer pixels if frames run slow. */
+  frame: {
+    minInterval: 1000 / 64,
+    slowFrameMs: 26,
+    stepDown: 0.8,
   },
 } as const;
-
-export type Tier = "high" | "mid" | "low";

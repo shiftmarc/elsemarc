@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { WaterEngine } from "./engine";
+import { PoolEngine } from "./engine";
 
 /**
- * The water tank: a full-screen canvas behind the page's h1. It only ever
- * adds the animation: the h1 stays the real, readable heading, and its
- * text shows whenever the water can't run (no WebGL2, reduced motion, or
- * an error).
+ * The pool: a full-screen canvas of water behind the page, with the h1's
+ * letters lying on its floor. It only ever adds the animation: the h1
+ * stays the real, readable heading, and its text shows whenever the pool
+ * can't run (no WebGL2 or float targets, reduced motion, or an error).
  *
  * State lives on <html data-water>: "pending" (set before paint by the
- * inline script in the root layout), "on" once the water is drawing,
+ * inline script in the root layout), "on" once the pool is drawing,
  * "off" for the still version.
  */
 export function WaterCanvas() {
@@ -22,7 +22,7 @@ export function WaterCanvas() {
     if (!canvas || !h1) return;
     const root = document.documentElement;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-    let engine: WaterEngine | null = null;
+    let engine: PoolEngine | null = null;
     let generation = 0;
 
     const run = async () => {
@@ -33,7 +33,7 @@ export function WaterCanvas() {
         root.dataset.water = "off";
         return;
       }
-      const started = await WaterEngine.start(canvas, h1, {
+      const started = await PoolEngine.start(canvas, h1, {
         onReady: () => {
           if (mine === generation) root.dataset.water = "on";
         },
