@@ -228,10 +228,10 @@ html[data-keyboard] .wordmark {
   font-size: min(9vw, calc(var(--vv-h, 100dvh) * 0.078), 7.8rem);
 }
 
-/* The corner email: small caps in the display serif, written in lowercase,
+/* The corner links (email, info & pricing): small caps in the display serif, written in lowercase,
    with a little tracking, and quiet. (The fonts as served have no small-cap
    glyphs of their own, so the browser draws them from scaled capitals.) */
-.tank-mail {
+.tank-corner {
   font-family: var(--font-newsreader), "Times New Roman", serif;
   font-size: var(--text-small);
   line-height: 1;
@@ -246,7 +246,7 @@ html[data-keyboard] .wordmark {
 
 /* With a phone keyboard open, the corner email and the line under the
    wordmark make way for the form. */
-html[data-keyboard] .tank-mail,
+html[data-keyboard] .tank-corner,
 html[data-keyboard] .tank-statement {
   display: none;
 }
@@ -263,7 +263,7 @@ html[data-keyboard] .tank-statement {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 
-  .tank-mail,
+  .tank-corner,
   .tank-statement {
     display: none;
   }
@@ -284,7 +284,7 @@ html[data-keyboard] .tank-statement {
    Inputs get a weaker, slower version so typing stays easy to read.
    Filters live in UnderwaterFilters. */
 @media (prefers-reduced-motion: no-preference) {
-  html[data-water="on"] :is(.tank-statement, .tank-mail, .tank-contact label, .tank-contact button, .tank-contact p, #contact [role="status"]) {
+  html[data-water="on"] :is(.tank-statement, .tank-corner, .tank-contact label, .tank-contact button, .tank-contact p, #contact [role="status"]) {
     filter: url(#underwater);
     text-shadow: 0 0 0.6px currentColor;
   }
@@ -292,6 +292,77 @@ html[data-keyboard] .tank-statement {
   html[data-water="on"] .tank-contact :is(textarea, input) {
     filter: url(#underwater-field);
     text-shadow: 0 0 0.3px currentColor;
+  }
+}
+
+/* Info & pricing: a small panel over the pool (a modal <dialog>). */
+.pricing-panel {
+  width: min(26rem, calc(100vw - 2rem));
+  max-height: calc(var(--vv-h, 100dvh) - 2rem);
+  margin: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-raised) 97%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--fg);
+  box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 0.45);
+  touch-action: pan-y;
+  pointer-events: auto;
+}
+
+.pricing-panel::backdrop {
+  background: rgb(10 10 9 / 0.6);
+}
+
+/* Without JavaScript, the panel shows while it's the URL's target (#pricing). */
+.pricing-panel:target:not([open]) {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.pricing-steps {
+  counter-reset: step;
+}
+
+.pricing-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+}
+
+.pricing-steps li::before {
+  content: counter(step);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: inherit;
+  color: var(--fg-muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pricing-panel[open] {
+    animation: panel-in 0.35s var(--ease-out-expo);
+  }
+
+  .pricing-panel[open]::backdrop {
+    animation: backdrop-in 0.35s ease-out;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.98);
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
   }
 }
 

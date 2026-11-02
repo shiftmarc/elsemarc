@@ -3,13 +3,14 @@ import { VisibleViewport } from "@/components/brand/visible-viewport";
 import { Wordmark } from "@/components/brand/wordmark";
 import { WaterCanvas } from "@/components/brand/water/water-canvas";
 import { TankContact } from "@/components/contact/tank-contact";
+import { PricingPanel } from "@/components/pricing/pricing-panel";
 import { siteConfig } from "@/config/site";
 
 /**
  * The pool: one dark screen of water that doesn't scroll. The wordmark
  * lies on the floor in the middle, with a short line just under it (on
  * the surface, not in the water); the contact form, one question at a
- * time, sits below; the email waits in a corner.
+ * time, sits below; "info & pricing" and the email wait in the corners.
  *
  * The screen follows the visible viewport (VisibleViewport), so with a
  * phone keyboard open everything still fits above it. Touches anywhere
@@ -36,10 +37,12 @@ export default function HomePage() {
 
       <a
         href={`mailto:${siteConfig.email}`}
-        className="tank-mail absolute right-gutter bottom-[max(1rem,env(safe-area-inset-bottom))] text-fg-muted transition-colors hover:text-fg"
+        className="tank-corner absolute right-gutter bottom-[max(1rem,env(safe-area-inset-bottom))] text-fg-muted transition-colors hover:text-fg"
       >
         {siteConfig.email}
       </a>
+
+      <PricingPanel />
     </div>
   );
 }
