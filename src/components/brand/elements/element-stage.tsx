@@ -3,10 +3,11 @@
 import { useEffect, useRef } from "react";
 import { ELEMENT_MODULES, resolveElement } from "./registry";
 import { Stage } from "./stage";
+import { keepVisitAlive } from "./visit";
 
 /**
  * The background: a full-screen canvas behind the page where this visit's
- * element (water, for now always) runs, with the h1's letters drawn into
+ * element (water, earth, ...) runs, with the h1's letters drawn into
  * it. It only ever adds the animation: the h1 stays the real, readable
  * heading, and its text shows whenever the element can't run (no WebGL2,
  * reduced motion, or an error).
@@ -20,6 +21,9 @@ import { Stage } from "./stage";
  */
 export function ElementStage() {
   const ref = useRef<HTMLCanvasElement>(null);
+
+  // Notes activity, so the visit (and its element) lasts while the visitor is around.
+  useEffect(() => keepVisitAlive(), []);
 
   useEffect(() => {
     const canvas = ref.current;

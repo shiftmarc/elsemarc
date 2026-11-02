@@ -20,6 +20,7 @@ type Entry = { load: () => Promise<ElementModule>; Overlay?: ComponentType };
 
 export const ELEMENT_MODULES: Partial<Record<ElementName, Entry>> = {
   water: { load: () => import("./water").then((m) => m.water), Overlay: UnderwaterFilters },
+  earth: { load: () => import("./earth").then((m) => m.earth) },
 };
 
 /** The element to run for `name` (from <html data-element>): itself if it has code, else water. */
