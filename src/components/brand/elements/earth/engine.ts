@@ -5,13 +5,16 @@ import { TUNING } from "./tuning";
 
 /**
  * Earth: a zen garden. Fine dark volcanic sand seen from above in low
- * raking light, raked in long slow lines, with the wordmark pressed into
- * it and its accent a smooth stone.
+ * raking light, raked in long straight lines, with the wordmark pressed
+ * into it and its accent a smooth stone with rings raked around it.
  *
- * Dragging rakes grooves that slowly settle back; a tap leaves a small
+ * Dragging rakes deep grooves that slowly settle back; a tap leaves a
  * crater and throws grains; each keystroke drops a pebble that leaves a
  * dent; a sent message is pressed into the sand, then the wind erases it.
- * Left alone, a faint wind drifts the sand and softens the grooves.
+ * It never stands still: a breeze (gusting once the visitor is idle) sends
+ * streamers of fine sand snaking across with grains skittering along, and
+ * wears the lines down; an invisible rake slowly redraws them, one pass at
+ * a time.
  *
  * The stage (../stage.ts) runs the clock and hands over the visitor's input.
  */
@@ -34,8 +37,51 @@ const smooth = (x: number) => {
 };
 const between = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0]);
 
+// The shaders' hash and value noise (gl.ts), so the grains can follow the streamers drawn there.
+function hash(x: number, y: number) {
+  let n = Math.imul(Math.imul(x, 1597334673) ^ Math.imul(y, 3812015801 | 0), 1597334673);
+  n ^= n >>> 16;
+  n = Math.imul(n, 2246822519 | 0);
+  n ^= n >>> 13;
+  return (n >>> 0) / 4294967295;
+}
+
+function noise(x: number, y: number) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash(ix, iy) + (hash(ix + 1, iy) - hash(ix, iy)) * ux;
+  const b = hash(ix, iy + 1) + (hash(ix + 1, iy + 1) - hash(ix, iy + 1)) * ux;
+  return a + (b - a) * uy;
+}
+
+const W = TUNING.wind;
+const WIND_LEN = Math.hypot(W.dir[0], W.dir[1]);
+/** Along the wind, and across it. */
+const ALONG: [number, number] = [W.dir[0] / WIND_LEN, W.dir[1] / WIND_LEN];
+const ACROSS: [number, number] = [-ALONG[1], ALONG[0]];
+
+/** A streamer lane at `u` along the wind: its centreline across the wind, its width, how much sand it carries (as in renderer.ts). */
+function streamer(lane: number, u: number, time: number) {
+  const h1 = hash(lane, 7);
+  const h2 = hash(lane, 13);
+  const travel = u - time * W.streamerSpeed * (0.8 + 0.4 * h1);
+  const centre =
+    (lane + 0.5) * W.lane +
+    (h2 - 0.5) * W.lane * 0.5 +
+    22 * Math.sin(travel / 170 + h1 * Math.PI * 2) +
+    8 * Math.sin(travel / 61 + h2 * Math.PI * 2);
+  const width = 4 + 7 * noise(travel / 110, lane * 1.7);
+  return { centre, width, packet: smooth((noise(travel / 240, lane * 3.1) - 0.42) / 0.36) };
+}
+
+type Bounds = { left: number; right: number; top: number; bottom: number };
+
 /** The ink's real extent: each glyph's measured box (letter spacing and kerning come from the DOM positions). */
-function inkBounds(layout: WordLayout) {
+function inkBounds(layout: WordLayout, accentOnly = false): Bounds {
   const ctx = document.createElement("canvas").getContext("2d")!;
   ctx.font = layout.font;
   let left = Infinity;
@@ -43,6 +89,7 @@ function inkBounds(layout: WordLayout) {
   let top = Infinity;
   let bottom = -Infinity;
   for (const g of layout.glyphs) {
+    if (accentOnly && !g.accent) continue;
     const m = ctx.measureText(g.ch);
     left = Math.min(left, g.x - m.actualBoundingBoxLeft);
     right = Math.max(right, g.x + m.actualBoundingBoxRight);
@@ -72,7 +119,7 @@ function drawMask(layout: WordLayout, rect: Rect, scale: number, mode: "word" | 
   return canvas;
 }
 
-/** A grain or pebble: flying (z > 0 or rising), resting, then fading into the sand. */
+/** A grain or pebble: flying (z > 0 or rising), resting, then fading into the sand; or skittering along a streamer. */
 type Sprite = {
   x: number;
   y: number;
@@ -86,8 +133,11 @@ type Sprite = {
   aspect: number;
   born: number;
   landed: number;
-  /** Drifting grains only: seconds they travel with the wind. */
+  /** Skittering grains only: seconds they run along a streamer, which lane, where along it, how far off its centre. */
   drift: number;
+  lane: number;
+  u: number;
+  off: number;
   alpha: number;
 };
 
@@ -117,10 +167,14 @@ export class EarthScene implements ElementScene {
   private sprites: Sprite[] = [];
   private spriteData = new Float32Array(TUNING.grains.max * SPRITE_FLOATS);
 
-  // Wind: rises while the visitor is idle (the stage asks for ambience), falls when they return.
+  // Wind: a breeze always, gusting while the visitor is idle (the stage asks for ambience), easing when they return.
   private lastAmbience = -Infinity;
-  private wind = 0;
-  private nextDrift = 0;
+  private gusting = 0;
+  private windLevel: number = W.breeze;
+  private nextSkitter = 0;
+
+  /** The invisible rake: which band of lines it's redrawing, which way, and where it is. */
+  private gardener = { band: -1, bands: 1, dir: 1, x: 0, flick: 0 };
 
   private message: { start: number } | null = null;
 
@@ -207,21 +261,27 @@ export class EarthScene implements ElementScene {
     const rect = { x: b.left - reach, y: b.top - reach, w: b.right - b.left + 2 * reach, h: b.bottom - b.top + 2 * reach };
     const scale = Math.min(ratio, 2);
     this.renderer.setWord(drawMask(word, rect, scale, "word"), rect, scale, [bevel, rimSpread, stoneBlur]);
-    const pad = fs * g.ringPad;
-    const half: [number, number] = [(b.right - b.left) / 2 + pad, (b.bottom - b.top) / 2 + pad];
+
+    // The rings go round the stone (the accent) only; without one, a small circle at the word's centre.
+    const hasStone = word.glyphs.some((glyph) => glyph.accent);
+    const s = hasStone ? inkBounds(word, true) : b;
+    const radius = hasStone ? Math.max(s.right - s.left, s.bottom - s.top) / 2 + stoneBlur : fs * 0.1;
     this.renderer.setGarden({
-      box: [(b.left + b.right) / 2, (b.top + b.bottom) / 2, ...half],
-      radius: Math.min(...half),
-      margin: fs * g.ringMargin + 3,
+      stone: [(s.left + s.right) / 2, (s.top + s.bottom) / 2, radius],
+      margin: radius * g.ringGap + 2,
       rings: g.rings,
       period: this.period,
       amp: g.amp,
-      wave: g.wave * this.period,
-      waveLength: g.waveLength,
       depth: Math.min(w.depthRange[1], Math.max(w.depthRange[0], fs * w.depth)),
       rim: w.rim,
-      stone: fs * w.stoneHeight,
+      stoneHeight: fs * w.stoneHeight,
     });
+    // A new garden: its lines worn unevenly, so the invisible rake's fresh passes show.
+    if (this.renderer.fresh) {
+      this.ops.push({ kind: "wear", level: 0.62, spread: 0.3, scale: 300 });
+      this.renderer.fresh = false;
+    }
+    this.gardener.bands = Math.max(1, Math.ceil(height / (TUNING.gardener.lines * this.period)));
     this.drawnAt = this.h1Position();
     this.canvas.dataset.garden = `${Math.round(width * ratio)}×${Math.round(height * ratio)}`;
     return true;
@@ -252,13 +312,24 @@ export class EarthScene implements ElementScene {
       born: this.time,
       landed: -1,
       drift: 0,
+      lane: 0,
+      u: 0,
+      off: 0,
       alpha: 1,
       ...s,
     });
   }
 
   /** Grains thrown out from (x, y). */
-  private scatter(x: number, y: number, count: number, from: number, speed: readonly [number, number], lift: readonly [number, number]) {
+  private scatter(
+    x: number,
+    y: number,
+    count: number,
+    from: number,
+    speed: readonly [number, number],
+    lift: readonly [number, number],
+    size: readonly [number, number] = [1.1, 2],
+  ) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = between(speed);
@@ -269,19 +340,19 @@ export class EarthScene implements ElementScene {
         vx: Math.cos(a) * v,
         vy: Math.sin(a) * v,
         vz: between(lift),
-        size: 1.1 + Math.random() * 0.9,
+        size: between(size),
         aspect: 1 + Math.random() * 0.4,
       });
     }
   }
 
-  /** A tap: a small crater, grains thrown out of it. */
+  /** A tap: a crater, grains thrown out of it. */
   press(e: PointerEvent) {
     if (!e.isPrimary && e.pointerType === "mouse") return;
     const [x, y] = this.local(e);
     const c = TUNING.crater;
     this.ops.push({ kind: "crater", x, y, radius: c.radius, depth: c.depth, rim: c.rim, flatten: 0.85 });
-    this.scatter(x, y, c.grains, c.radius * 0.4, c.speed, c.lift);
+    this.scatter(x, y, c.grains, c.radius * 0.35, c.speed, c.lift, c.size);
   }
 
   dragStart(e: PointerEvent) {
@@ -296,7 +367,8 @@ export class EarthScene implements ElementScene {
     const [x, y] = this.local(e);
     if (Math.hypot(x - last.x, y - last.y) < TUNING.rake.step) return;
     const r = TUNING.rake;
-    this.ops.push({ kind: "rake", x0: last.x, y0: last.y, x1: x, y1: y, half: (r.tines / 2) * this.period, depth: r.depth, berm: r.berm });
+    const half = (r.tines / 2) * r.spacing * this.period;
+    this.ops.push({ kind: "rake", x0: last.x, y0: last.y, x1: x, y1: y, half, depth: r.depth, berm: r.berm });
     last.x = x;
     last.y = y;
   }
@@ -340,28 +412,82 @@ export class EarthScene implements ElementScene {
     return true;
   }
 
-  /** Idle: the wind picks up, and now and then a grain drifts along with it. */
+  /** Idle: the wind gusts. */
   ambience(time: number) {
     this.time = time;
     this.lastAmbience = time;
-    if (time < this.nextDrift || this.wind < 0.3) return;
-    const w = TUNING.wind;
-    const [dx, dy] = w.dir;
-    const len = Math.hypot(dx, dy);
-    const v = between(w.grainSpeed);
-    this.spawn({
-      x: Math.random() * this.size[0],
-      y: Math.random() * this.size[1],
-      vx: (dx / len) * v,
-      vy: (dy / len) * v,
-      size: 0.9 + Math.random() * 0.7,
-      drift: between(w.grainLife),
-      alpha: 0,
-    });
-    this.nextDrift = time + between(w.grainGap);
   }
 
-  /** Flying grains fall, land, rest and fade; pebbles dent the sand where they land, then sink. */
+  /** A loose grain skittering along a streamer, if one is passing a random spot on screen. */
+  private skitter() {
+    const [w, h] = this.size;
+    let uMin = Infinity;
+    let uMax = -Infinity;
+    let vMin = Infinity;
+    let vMax = -Infinity;
+    for (const [x, y] of [
+      [0, 0],
+      [w, 0],
+      [0, h],
+      [w, h],
+    ]) {
+      const u = x * ALONG[0] + y * ALONG[1];
+      const v = x * ACROSS[0] + y * ACROSS[1];
+      uMin = Math.min(uMin, u);
+      uMax = Math.max(uMax, u);
+      vMin = Math.min(vMin, v);
+      vMax = Math.max(vMax, v);
+    }
+    for (let tries = 0; tries < 6; tries++) {
+      const lane = Math.floor((vMin + Math.random() * (vMax - vMin)) / W.lane);
+      const u = uMin + Math.random() * (uMax - uMin);
+      const st = streamer(lane, u, this.time);
+      if (st.packet < 0.45) continue;
+      const off = (Math.random() - 0.5) * st.width * 1.2;
+      const x = u * ALONG[0] + (st.centre + off) * ACROSS[0];
+      const y = u * ALONG[1] + (st.centre + off) * ACROSS[1];
+      if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
+      this.spawn({ x, y, vx: between(W.grainSpeed), size: 0.9 + Math.random() * 0.8, drift: between(W.grainLife), lane, u, off, alpha: 0 });
+      return;
+    }
+  }
+
+  /** The invisible rake moves on along its band, redrawing the lines behind it; then the next band, the other way. */
+  private tend(dt: number) {
+    const gd = TUNING.gardener;
+    const g = this.gardener;
+    const width = this.size[0];
+    const bandH = gd.lines * this.period;
+    if (g.band < 0 || g.x < -40 || g.x > width + 40) {
+      g.band = g.band < 0 ? Math.floor(Math.random() * g.bands) : (g.band + 1) % g.bands;
+      g.dir = g.band % 2 === 0 ? 1 : -1;
+      g.x = g.dir > 0 ? -30 : width + 30;
+    }
+    // A message being erased is left to the wind.
+    if (this.message) return;
+    const y = (g.band + 0.5) * bandH;
+    const x = g.x + g.dir * gd.speed * Math.min(dt, 0.1);
+    this.ops.push({ kind: "refresh", x0: g.x, y0: y, x1: x, y1: y, half: bandH / 2, heap: gd.heap, period: this.period });
+    g.x = x;
+    // Now and then a grain flicks up off its tines.
+    g.flick += dt * gd.flick;
+    while (g.flick >= 1) {
+      g.flick -= 1;
+      const v = between([25, 60]);
+      const a = (Math.random() - 0.5) * 0.9;
+      this.spawn({
+        x: x + g.dir * 3,
+        y: y + (Math.random() - 0.5) * bandH,
+        z: 0.5,
+        vx: g.dir * v * Math.cos(a),
+        vy: v * Math.sin(a),
+        vz: between([40, 90]),
+        size: 1 + Math.random() * 0.7,
+      });
+    }
+  }
+
+  /** Flying grains fall, land, rest and fade; pebbles dent the sand where they land, then sink; skittering grains hop along. */
   private updateSprites(dt: number) {
     const gr = TUNING.grains;
     const pb = TUNING.pebble;
@@ -370,11 +496,15 @@ export class EarthScene implements ElementScene {
     for (const s of this.sprites) {
       let size = s.size;
       if (s.drift > 0) {
+        // Skittering along its streamer: little hops, following the ribbon as it snakes.
         const age = this.time - s.born;
         if (age > s.drift) continue;
-        s.x += s.vx * dt;
-        s.y += s.vy * dt;
-        s.alpha = smooth(age / 0.5) * (1 - smooth((age - s.drift + 0.7) / 0.7)) * 0.85;
+        s.u += s.vx * dt;
+        const v = streamer(s.lane, s.u, this.time).centre + s.off;
+        s.x = s.u * ALONG[0] + v * ACROSS[0];
+        s.y = s.u * ALONG[1] + v * ACROSS[1];
+        s.z = 1.6 * Math.abs(Math.sin(age * 11 + s.angle * 3));
+        s.alpha = smooth(age / 0.35) * (1 - smooth((age - s.drift + 0.6) / 0.6)) * (0.5 + 0.5 * this.windLevel);
       } else if (s.landed < 0) {
         s.vz -= gr.gravity * (s.pebble ? 0.6 : 1) * dt;
         s.x += s.vx * dt;
@@ -437,20 +567,29 @@ export class EarthScene implements ElementScene {
     const at = this.h1Position();
     this.renderer.setShift([at[0] - this.drawnAt[0], at[1] - this.drawnAt[1]]);
 
-    const w = TUNING.wind;
     const idle = time - this.lastAmbience < 0.2 ? 1 : 0;
-    this.wind += (idle - this.wind) * (1 - Math.exp(-dt / (idle > this.wind ? w.rise : w.fall)));
+    this.gusting += (idle - this.gusting) * (1 - Math.exp(-dt / (idle > this.gusting ? W.rise : W.fall)));
     const msg = this.messageState();
-    const wind = Math.max(this.wind * w.level, msg.wind);
+    const wind = Math.max(W.breeze + (1 - W.breeze) * this.gusting, msg.wind);
+    this.windLevel = wind;
+
+    // Loose grains skitter along the streamers, more of them the stronger the wind.
+    if (time >= this.nextSkitter) {
+      this.skitter();
+      this.nextSkitter = time + between(W.grainGap) / Math.max(wind, 0.1);
+    }
+    this.tend(dt);
 
     const count = this.updateSprites(dt);
     if (this.ops.length) {
       this.renderer.disturb(this.ops);
       this.ops.length = 0;
     }
-    this.renderer.settle(dt, wind, time, msg.erode);
+    this.renderer.setWind(wind, time);
+    this.renderer.settle(dt, msg.erode);
     this.renderer.render(time, msg.press, this.spriteData, count);
     this.canvas.dataset.wind = wind.toFixed(2);
+    this.canvas.dataset.gardener = `${this.gardener.band}:${Math.round(this.gardener.x)}`;
 
     this.monitor(dt * 1000);
   }

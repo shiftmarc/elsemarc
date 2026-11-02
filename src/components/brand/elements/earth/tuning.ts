@@ -7,28 +7,26 @@ export const TUNING = {
   /** The disturbance field's cell size (the raked pattern and letters are drawn at full resolution). */
   sim: { cell: 1.25 },
 
-  /** The raked garden: long, gently waving lines, and rings around the wordmark. */
+  /** The raked garden: straight lines, and rings around the stone. */
   garden: {
-    /** Groove spacing: a share of the screen's short side, within these limits. */
+    /** Line spacing: a share of the screen's short side, within these limits. */
     periodShare: 0.0105,
     period: [6.5, 11] as const,
-    /** Half the ridge-to-groove depth. */
-    amp: 0.4,
-    /** The lines' slow wave: height (in groove spacings) and wavelength. */
-    wave: 1.1,
-    waveLength: 560,
-    /** Rings around the word: how many, and how far out they start (× font size). */
-    rings: 5,
-    ringPad: 0.2,
-    ringMargin: 0.12,
+    /** Half the ridge-to-groove depth, freshly raked. */
+    amp: 0.5,
+    /** How much worn lines lose (0–1 of their depth). */
+    wornLoss: 0.7,
+    /** Rings around the stone: how many, and the gap before the first (× stone radius, + 2 px). */
+    rings: 4,
+    ringGap: 0.55,
   },
 
   /** The wordmark pressed into the sand (× font size where noted). */
   word: {
-    depth: 0.022,
-    depthRange: [1.2, 2.8] as const,
+    depth: 0.026,
+    depthRange: [1.4, 3.2] as const,
     /** Sand pushed up around the letters. */
-    rim: 0.42,
+    rim: 0.5,
     /** Edge softness of the letters and of the rim (blur widths, × font size). */
     bevel: 0.011,
     bevelMin: 0.55,
@@ -40,36 +38,40 @@ export const TUNING = {
 
   /** Low sun from the top left. */
   light: {
-    dir: [-0.6, -0.56, 0.4] as const,
-    ambient: 0.24,
-    sun: 2.0,
+    dir: [-0.62, -0.58, 0.31] as const,
+    ambient: 0.2,
+    sun: 2.55,
     /** How strongly slopes catch or lose the light. */
-    relief: 1.0,
+    relief: 1.1,
+    /** Sand albedo relative to the page surface colour. */
+    sand: 1.45,
+    /** Cast shadows: how dark. */
+    shadow: 0.78,
     vignette: 0.3,
   },
 
   /** Fine grains: size, bumpiness, and the share of glassy grains that glint. */
-  grain: { size: 0.72, relief: 0.09, glint: 0.006 },
+  grain: { size: 0.72, relief: 0.12, glint: 0.007 },
 
-  /** Dragging rakes grooves: tines, and the sand pushed up beside them. */
-  rake: { tines: 5, depth: 0.55, berm: 0.32, step: 2 },
+  /** Dragging rakes grooves: tines and their spacing (× line spacing), depth, and the sand heaped beside them. */
+  rake: { tines: 5, spacing: 1.7, depth: 2.6, berm: 1.6, step: 2 },
 
-  /** A tap: a small crater, with grains thrown out. */
-  crater: { radius: 9, depth: 1.7, rim: 0.55, grains: 14, speed: [45, 120] as const, lift: [70, 160] as const },
+  /** A tap: a crater, with grains flying out. */
+  crater: { radius: 15, depth: 3, rim: 1.0, grains: 32, size: [1.5, 3] as const, speed: [60, 190] as const, lift: [120, 270] as const },
 
   /** A keystroke: a pebble drops in and leaves a dent. */
   pebble: {
     size: [8, 11] as const,
     drop: 46,
     dentRadius: 6.5,
-    dentDepth: 1.1,
+    dentDepth: 1.3,
     /** Seconds resting on top, then sinking out of sight. */
     rest: 1.1,
     sink: 2.2,
   },
 
   /** Grains after landing: seconds resting, then fading into the sand. */
-  grains: { rest: 1.2, fade: 2.6, gravity: 900, max: 260 },
+  grains: { rest: 1.2, fade: 2.6, gravity: 900, max: 320 },
 
   /** Disturbances settle back to the raked garden; wind speeds that up. */
   settle: {
@@ -79,21 +81,31 @@ export const TUNING = {
     /** Softening (blur), in cells² per second, in still air and in wind. */
     blurCalm: 0.015,
     blurWindy: 0.06,
+    /** How fast the wind wears the raked lines (per second, at full wind), and the most it wears them. */
+    wear: 1 / 160,
+    maxWear: 0.9,
   },
 
-  /** Idle wind: direction (towards), how fast gusts travel, rising and falling, and drifting grains. */
+  /** The wind never quite stops: a breeze while the visitor is busy, gusts once they're idle. */
   wind: {
     dir: [0.96, 0.28] as const,
     speed: 26,
+    breeze: 0.4,
     rise: 3,
-    fall: 1.2,
-    level: 1,
-    streaks: 0.035,
-    /** A drifting grain every this many seconds (random in range), and how long each travels. */
-    grainGap: [0.12, 0.45] as const,
-    grainLife: [1.4, 3] as const,
-    grainSpeed: [12, 30] as const,
+    fall: 1.5,
+    /** Streamers of fine sand: lane spacing across the wind, how fast they travel, how high and bright. */
+    lane: 125,
+    streamerSpeed: 44,
+    streamerHeight: 0.32,
+    streamerGlow: 0.05,
+    /** Skittering grains: one every this many seconds at full wind (random in range), how long each runs, how fast. */
+    grainGap: [0.03, 0.09] as const,
+    grainLife: [1.2, 2.6] as const,
+    grainSpeed: [35, 75] as const,
   },
+
+  /** The invisible rake: lines per pass, speed, the sand heaped ahead of its tines, grains flicked per second. */
+  gardener: { lines: 7, speed: 70, heap: 0.75, flick: 5 },
 
   /** The sent message: pressed in, held, then erased by the wind. */
   message: {
