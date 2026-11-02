@@ -1,6 +1,6 @@
 /**
  * Reads text's real layout from the DOM (the h1, or a copy of a form
- * field) so the pool floor can show exactly the same letters in exactly
+ * field) so an element (the pool floor, for water) can show exactly the same letters in exactly
  * the same places.
  */
 
@@ -45,7 +45,7 @@ export function measureWord(h1: HTMLElement, frame: HTMLElement): WordLayout {
   const range = document.createRange();
   const walker = document.createTreeWalker(h1, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-    const accent = node.parentElement !== h1 && !!node.parentElement?.closest("[data-water-accent]");
+    const accent = node.parentElement !== h1 && !!node.parentElement?.closest("[data-element-accent]");
     const text = node.data;
     for (let i = 0; i < text.length; i++) {
       if (!text[i].trim()) continue;

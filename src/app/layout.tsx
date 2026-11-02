@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Newsreader, Schibsted_Grotesk } from "next/font/google";
+import { elementBootScript } from "@/components/brand/elements/rotation";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
@@ -38,12 +39,13 @@ export const metadata: Metadata = {
 
 /**
  * Runs before first paint. Marks that JavaScript is on (the contact form
- * then shows one step at a time), and, if the water is likely to run, hides
- * the h1's glyphs now so the word doesn't flash before the water pours in.
- * The tank sets "on" or "off" once it knows; CSS reveals the text after a
- * few seconds if neither happens.
+ * then shows one step at a time), picks this visit's element (rotation.ts)
+ * into data-element, and, if the element is likely to run, hides the h1's
+ * glyphs now (data-stage="pending") so the word doesn't flash before it
+ * appears. The stage sets "on" or "off" once it knows; CSS reveals the text
+ * after a few seconds if neither happens.
  */
-const bootFlags = `try{var d=document.documentElement;d.dataset.js="";if("WebGL2RenderingContext"in window&&!matchMedia("(prefers-reduced-motion: reduce)").matches)d.dataset.water="pending"}catch(e){}`;
+const bootFlags = `try{var d=document.documentElement;d.dataset.js="";try{d.dataset.element=${elementBootScript()}}catch(e){d.dataset.element="water"}if("WebGL2RenderingContext"in window&&!matchMedia("(prefers-reduced-motion: reduce)").matches)d.dataset.stage="pending"}catch(e){}`;
 
 export const viewport: Viewport = {
   themeColor: "#181816",

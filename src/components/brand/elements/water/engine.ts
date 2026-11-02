@@ -1,14 +1,15 @@
-import { RIPPLE_EVENT, SINK_EVENT, type RippleDetail, type SinkDetail } from "./pool-events";
+import { boundsOf, drawText, loadFont, measureWord } from "../text-layout";
+import type { ElementHooks, ElementScene } from "../types";
 import { PoolRenderer, type Drop, type EdgeWave, type MessageState } from "./renderer";
-import { boundsOf, drawText, loadFont, measureWord } from "./text-layout";
 import { TUNING } from "./tuning";
 
 /**
- * Runs the pool on a full-screen canvas behind the page: sizing, the frame
- * loop, ripples from clicks, touches, drags and keystrokes, tilt waves, the
- * sinking message, pausing when hidden, and drawing fewer pixels on slow
- * devices. The h1 stays the real heading; the pool draws the same letters
- * on its floor, wherever the h1 currently is.
+ * Water: the pool. Sizing, ripples from clicks, touches, drags and
+ * keystrokes, tilt waves, idle rain, the sinking message, and drawing
+ * fewer pixels on slow devices. The h1 stays the real heading; the pool
+ * draws the same letters on its floor, wherever the h1 currently is.
+ *
+ * The stage (../stage.ts) runs the clock and hands over the visitor's input.
  */
 
 /** Any CSS colour → 0–1 RGB (sRGB, as the page blends). */
@@ -31,12 +32,12 @@ const smooth = (x: number) => {
 
 type Drag = { x: number; y: number; t: number; carry: number };
 
-export type PoolCallbacks = { onReady: () => void; onFail: () => void };
+export class WaterScene implements ElementScene {
+  readonly idleAfter = TUNING.rain.resumeAfter;
 
-export class PoolEngine {
   private canvas: HTMLCanvasElement;
   private h1: HTMLElement;
-  private callbacks: PoolCallbacks;
+  private hooks: ElementHooks;
   private gl: WebGL2RenderingContext;
   private renderer: PoolRenderer;
 
@@ -46,14 +47,11 @@ export class PoolEngine {
   /** Where the h1 was (canvas px) when the floor was drawn; it may have moved since. */
   private drawnAt: [number, number] = [0, 0];
 
-  private raf = 0;
-  private last = 0;
-  private lastDrawn = 0;
   private acc = 0;
+  /** The stage's clock (seconds), as of the latest frame or ambience call. */
   private time = 0;
   private frameMs = 16.7;
   private slowSince = -1;
-  private ready = false;
   private disposed = false;
   private resizeTimer = 0;
 
@@ -68,17 +66,16 @@ export class PoolEngine {
   private level: [number, number] | null = null;
   private nextWave = 0;
 
-  // Idle rain: falls only after the visitor has left the water alone for a while.
-  private lastActive = -Infinity;
+  // Idle rain: the stage only asks for it once the visitor has left the water alone for a while.
   private nextRain = 0;
 
   private resizer: ResizeObserver;
 
-  private constructor(canvas: HTMLCanvasElement, h1: HTMLElement, gl: WebGL2RenderingContext, callbacks: PoolCallbacks) {
+  private constructor(canvas: HTMLCanvasElement, h1: HTMLElement, gl: WebGL2RenderingContext, hooks: ElementHooks) {
     this.canvas = canvas;
     this.h1 = h1;
     this.gl = gl;
-    this.callbacks = callbacks;
+    this.hooks = hooks;
     this.renderer = new PoolRenderer(gl);
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, TUNING.render.maxPixelRatio);
 
@@ -96,7 +93,7 @@ export class PoolEngine {
   }
 
   /** Starts the pool, or returns null (and the still h1 stays) if it can't run. */
-  static async start(canvas: HTMLCanvasElement, h1: HTMLElement, callbacks: PoolCallbacks): Promise<PoolEngine | null> {
+  static async start(canvas: HTMLCanvasElement, h1: HTMLElement, hooks: ElementHooks): Promise<WaterScene | null> {
     const gl = canvas.getContext("webgl2", {
       alpha: false,
       antialias: false,
@@ -106,27 +103,26 @@ export class PoolEngine {
       powerPreference: "default",
     });
     if (!gl) return null;
-    let engine: PoolEngine;
+    let scene: WaterScene;
     try {
-      engine = new PoolEngine(canvas, h1, gl, callbacks);
+      scene = new WaterScene(canvas, h1, gl, hooks);
     } catch (error) {
-      console.warn("[pool] WebGL setup failed", error);
+      console.warn("[water] WebGL setup failed", error);
       return null;
     }
     await loadFont(h1);
-    if (engine.disposed) return engine;
     try {
-      if (!engine.layout()) {
-        engine.dispose();
+      if (!scene.layout()) {
+        scene.dispose();
         return null;
       }
     } catch (error) {
-      console.warn("[pool] Could not start", error);
-      engine.dispose();
+      console.warn("[water] Could not start", error);
+      scene.dispose();
       return null;
     }
-    engine.listen();
-    return engine;
+    scene.listen();
+    return scene;
   }
 
   /** Sizes everything to the canvas and redraws the floor from the h1. */
@@ -155,22 +151,10 @@ export class PoolEngine {
   }
 
   private listen() {
-    const c = this.canvas;
-    // Every press anywhere ripples; drags on the water itself leave a wake.
-    window.addEventListener("pointerdown", this.onAnyDown, { capture: true, passive: true });
-    c.addEventListener("pointerdown", this.onDown);
-    c.addEventListener("pointermove", this.onMove);
-    c.addEventListener("pointerup", this.onEnd);
-    c.addEventListener("pointercancel", this.onEnd);
-    c.addEventListener("lostpointercapture", this.onEnd);
-    c.addEventListener("webglcontextlost", this.onLost);
-    document.addEventListener("visibilitychange", this.updateRunning);
-    document.addEventListener(RIPPLE_EVENT, this.onRipple);
-    document.addEventListener(SINK_EVENT, this.onSink);
+    this.canvas.addEventListener("webglcontextlost", this.onLost);
     this.listenForTilt();
-    this.resizer.observe(c);
+    this.resizer.observe(this.canvas);
     this.resizer.observe(this.h1);
-    this.updateRunning();
   }
 
   /**
@@ -218,33 +202,21 @@ export class PoolEngine {
     return [e.clientX - this.origin[0], e.clientY - this.origin[1]];
   }
 
-  /** The visitor is doing something: hold the rain off. */
-  private active() {
-    this.lastActive = this.time;
-  }
-
-  private onAnyDown = (e: PointerEvent) => {
-    this.active();
+  /** Every press anywhere drops a ripple. */
+  press(e: PointerEvent) {
     if (!e.isPrimary && e.pointerType === "mouse") return;
     const [x, y] = this.local(e);
     const d = TUNING.drops.click;
     this.drops.push({ x, y, radius: d.radius, amp: d.amp });
-  };
+  }
 
-  private onDown = (e: PointerEvent) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    try {
-      this.canvas.setPointerCapture(e.pointerId);
-    } catch {
-      // Capture is a nicety: drags still work while the pointer stays on the canvas.
-    }
+  dragStart(e: PointerEvent) {
     const [x, y] = this.local(e);
     this.drags.set(e.pointerId, { x, y, t: e.timeStamp, carry: 0 });
-    this.active();
-  };
+  }
 
   /** A drag lays drops along its path: a wake, stronger the faster it goes. */
-  private onMove = (e: PointerEvent) => {
+  drag(e: PointerEvent) {
     const drag = this.drags.get(e.pointerId);
     if (!drag) return;
     const [x, y] = this.local(e);
@@ -262,26 +234,23 @@ export class PoolEngine {
     drag.x = x;
     drag.y = y;
     drag.t = e.timeStamp;
-  };
+  }
 
-  private onEnd = (e: PointerEvent) => {
+  dragEnd(e: PointerEvent) {
     this.drags.delete(e.pointerId);
-  };
+  }
 
-  private onRipple = (e: Event) => {
-    this.active();
-    const detail = (e as CustomEvent<RippleDetail>).detail;
-    if (!detail) return;
+  /** A keystroke: a small ripple just under the field. */
+  keystroke(x: number, y: number) {
     const d = TUNING.drops.key;
-    this.drops.push({ x: detail.x - this.origin[0], y: detail.y - this.origin[1], radius: d.radius, amp: d.amp * (0.8 + Math.random() * 0.4) });
-  };
+    this.drops.push({ x: x - this.origin[0], y: y - this.origin[1], radius: d.radius, amp: d.amp * (0.8 + Math.random() * 0.4) });
+  }
 
   /** A sent message: draw its letters on the floor layer, and let it land with a line of drops. */
-  private onSink = (e: Event) => {
-    const detail = (e as CustomEvent<SinkDetail>).detail;
-    if (!detail?.element || this.disposed || !this.ready) return;
-    const layout = measureWord(detail.element, this.canvas);
-    if (layout.glyphs.length === 0) return;
+  sink(text: HTMLElement) {
+    if (this.disposed) return false;
+    const layout = measureWord(text, this.canvas);
+    if (layout.glyphs.length === 0) return false;
     const [w, h] = this.size;
     const ratio = this.gl.canvas.width / w;
     this.renderer.setMessage(drawText([layout], w, h, ratio, "message"));
@@ -289,20 +258,19 @@ export class PoolEngine {
     const cx = (b.left + b.right) / 2;
     const cy = (b.top + b.bottom) / 2;
     this.message = { start: this.time, cx, cy };
-    this.active();
     const s = TUNING.drops.sink;
     for (let i = 0; i < s.count; i++) {
       const f = (i + 0.5) / s.count;
       this.drops.push({ x: b.left + (b.right - b.left) * f, y: cy + (Math.random() - 0.5) * 10, radius: s.radius, amp: s.amp });
     }
-    detail.handled = true;
-  };
+    return true;
+  }
 
-  /** Small drops at random spots now and then, so the water is never still. */
-  private rain() {
+  /** Idle ambience: small drops at random spots now and then, so the water is never still. */
+  ambience(time: number) {
+    this.time = time;
     const r = TUNING.rain;
-    if (this.drags.size > 0) this.active();
-    if (this.time - this.lastActive < r.resumeAfter || this.time < this.nextRain) return;
+    if (this.time < this.nextRain) return;
     const [w, h] = this.size;
     const drops = Math.random() < r.pairChance ? 2 : 1;
     for (let i = 0; i < drops; i++) {
@@ -337,32 +305,14 @@ export class PoolEngine {
     };
   }
 
-  private updateRunning = () => {
-    const run = !document.hidden && !this.disposed;
-    if (run && !this.raf) {
-      this.last = performance.now();
-      this.raf = requestAnimationFrame(this.frame);
-    } else if (!run && this.raf) {
-      cancelAnimationFrame(this.raf);
-      this.raf = 0;
-    }
-  };
-
-  private frame = (now: number) => {
-    this.raf = requestAnimationFrame(this.frame);
-    // About 60 fps is plenty for water; on 120 Hz screens, skip every other frame.
-    if (now - this.lastDrawn < TUNING.frame.minInterval && this.ready) return;
-    this.lastDrawn = now;
-    const dt = Math.min(0.05, (now - this.last) / 1000);
-    this.last = now;
-    this.time += dt;
+  frame(time: number, dt: number) {
+    this.time = time;
 
     // Follow the h1 if the layout moved it (a step change, the keyboard).
     const at = this.h1Position();
     const shift: [number, number] = [at[0] - this.drawnAt[0], at[1] - this.drawnAt[1]];
 
     this.applyTilt(dt);
-    this.rain();
     if (this.drops.length || this.wave) {
       this.renderer.disturb(this.drops, this.wave);
       this.drops.length = 0;
@@ -375,11 +325,7 @@ export class PoolEngine {
     this.renderer.render(this.time, shift, this.messageState());
 
     this.monitor(dt * 1000);
-    if (!this.ready) {
-      this.ready = true;
-      this.callbacks.onReady();
-    }
-  };
+  }
 
   /** If frames stay slow, draw fewer pixels (never below 1 per CSS px). */
   private monitor(ms: number) {
@@ -400,29 +346,16 @@ export class PoolEngine {
 
   private onLost = (e: Event) => {
     e.preventDefault();
-    this.dispose();
-    this.callbacks.onFail();
+    this.hooks.fail();
   };
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    cancelAnimationFrame(this.raf);
-    this.raf = 0;
     clearTimeout(this.resizeTimer);
     this.resizer.disconnect();
-    window.removeEventListener("pointerdown", this.onAnyDown, { capture: true });
     window.removeEventListener("devicemotion", this.onMotion);
-    document.removeEventListener("visibilitychange", this.updateRunning);
-    document.removeEventListener(RIPPLE_EVENT, this.onRipple);
-    document.removeEventListener(SINK_EVENT, this.onSink);
-    const c = this.canvas;
-    c.removeEventListener("pointerdown", this.onDown);
-    c.removeEventListener("pointermove", this.onMove);
-    c.removeEventListener("pointerup", this.onEnd);
-    c.removeEventListener("pointercancel", this.onEnd);
-    c.removeEventListener("lostpointercapture", this.onEnd);
-    c.removeEventListener("webglcontextlost", this.onLost);
+    this.canvas.removeEventListener("webglcontextlost", this.onLost);
     // Free GPU resources but keep the context: a remount reuses this canvas.
     if (!this.gl.isContextLost()) this.renderer.dispose();
   }

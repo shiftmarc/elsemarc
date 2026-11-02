@@ -6,8 +6,8 @@ import { useEffect, useRef, type RefObject } from "react";
  * SVG filters that make the page's text look like it's seen through the
  * pool: a slow, gentle waver (the slight softening is a text-shadow in
  * globals.css, which costs nothing while the text is still). Applied from
- * globals.css ("Underwater text"), only while the pool is running and
- * motion is welcome.
+ * globals.css ("Underwater text"), only while water is the running
+ * element and motion is welcome. Rendered as water's overlay (registry.ts).
  *
  * - #underwater: labels, questions, buttons, the line under the wordmark,
  *   the corner email.
@@ -110,8 +110,8 @@ export function UnderwaterFilters() {
     for (const image of images) image!.setAttribute("href", href);
     const root = document.documentElement;
     const step = () => {
-      // Nothing to move while the filters aren't in use (no pool, reduced motion, hidden tab).
-      if (root.dataset.water !== "on" || document.hidden) return;
+      // Nothing to move while the filters aren't in use (another element, no pool, reduced motion, hidden tab).
+      if (root.dataset.stage !== "on" || root.dataset.element !== "water" || document.hidden) return;
       const t = performance.now() / 1000;
       images.forEach((image, i) => {
         const { period, phase } = SLIDES[i];

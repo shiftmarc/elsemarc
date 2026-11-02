@@ -47,7 +47,7 @@ export const TUNING = {
     minGap: 0.25,
     maxGap: 0.95,
     pairChance: 0.2,
-    /** Seconds after the last interaction before the rain resumes. */
+    /** Seconds after the last interaction before the rain resumes (the stage tracks interaction). */
     resumeAfter: 3.5,
   },
 
@@ -106,9 +106,8 @@ export const TUNING = {
     waver: 1.8,
   },
 
-  /** Frame pacing: skip frames on 120 Hz screens, and draw fewer pixels if frames run slow. */
+  /** Draw fewer pixels if frames run slow (frame pacing itself is the stage's). */
   frame: {
-    minInterval: 1000 / 64,
     slowFrameMs: 26,
     stepDown: 0.8,
   },

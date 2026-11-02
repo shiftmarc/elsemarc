@@ -1,24 +1,24 @@
 /**
- * How the page talks to the pool without importing it: plain DOM events.
- * If no pool is running (reduced motion, no WebGL), nobody answers, and
- * the callers fall back to doing nothing (ripples) or a fade (sinking).
+ * How the page talks to the background element without importing it:
+ * plain DOM events, answered by the stage (stage.ts). If no element is
+ * running (reduced motion, no WebGL), nobody answers, and the callers fall
+ * back to doing nothing (keystrokes) or a fade (sinking).
  */
 
-export const RIPPLE_EVENT = "pool:ripple";
-export const SINK_EVENT = "pool:sink";
+export const KEYSTROKE_EVENT = "stage:keystroke";
+export const SINK_EVENT = "stage:sink";
 
-export type RippleDetail = { x: number; y: number; kind: "key" };
+export type KeystrokeDetail = { x: number; y: number };
 export type SinkDetail = { element: HTMLElement; handled: boolean };
 
-/** A small ripple just under a field, somewhere along it: for a keystroke. */
-export function rippleUnder(field: HTMLElement) {
+/** A keystroke in `field`: reported at a spot just under it, somewhere along it (water ripples there). */
+export function keystrokeUnder(field: HTMLElement) {
   const rect = field.getBoundingClientRect();
-  const detail: RippleDetail = {
+  const detail: KeystrokeDetail = {
     x: rect.left + rect.width * (0.25 + Math.random() * 0.5),
     y: rect.bottom - 2,
-    kind: "key",
   };
-  document.dispatchEvent(new CustomEvent(RIPPLE_EVENT, { detail }));
+  document.dispatchEvent(new CustomEvent(KEYSTROKE_EVENT, { detail }));
 }
 
 const COPIED = [
@@ -48,12 +48,12 @@ const COPIED = [
 ] as const;
 
 /**
- * Lets what's typed in `field` sink to the pool floor from where it sits.
- * The text is laid out in an invisible copy of the field so the pool can
- * measure every letter. Returns false if no pool is running, so the caller
- * can fade the text out instead.
+ * Hands what's typed in `field` to the element from where it sits (water
+ * sinks it to the pool floor). The text is laid out in an invisible copy of
+ * the field so the element can measure every letter. Returns false if no
+ * element took it, so the caller can fade the text out instead.
  */
-export function sinkIntoPool(field: HTMLTextAreaElement | HTMLInputElement): boolean {
+export function sinkMessage(field: HTMLTextAreaElement | HTMLInputElement): boolean {
   const text = field.value;
   if (!text.trim()) return false;
   const style = getComputedStyle(field);

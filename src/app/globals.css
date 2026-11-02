@@ -191,18 +191,18 @@
    While the pool draws the word on its floor, the h1's own glyphs are
    transparent (it still sets the size and is read by assistive tech). If
    the pool hasn't started 3s after "pending", the still text fades back. */
-html[data-water="pending"] .wordmark,
-html[data-water="pending"] .wordmark *,
-html[data-water="on"] .wordmark,
-html[data-water="on"] .wordmark * {
+html[data-stage="pending"] .wordmark,
+html[data-stage="pending"] .wordmark *,
+html[data-stage="on"] .wordmark,
+html[data-stage="on"] .wordmark * {
   color: transparent;
 }
 
-html[data-water="pending"] .wordmark {
+html[data-stage="pending"] .wordmark {
   animation: wordmark-reveal 0.4s ease-out 3s forwards;
 }
 
-html[data-water="pending"] .wordmark [data-water-accent] {
+html[data-stage="pending"] .wordmark [data-element-accent] {
   animation: wordmark-reveal-accent 0.4s ease-out 3s forwards;
 }
 
@@ -279,17 +279,17 @@ html[data-keyboard] .tank-statement {
   }
 }
 
-/* Underwater text: while the pool runs (and motion is welcome), the page's
+/* Underwater text: while water runs (and motion is welcome), the page's
    text wavers gently and softens slightly, as if seen through the water.
    Inputs get a weaker, slower version so typing stays easy to read.
-   Filters live in UnderwaterFilters. */
+   Filters live in UnderwaterFilters (elements/water). */
 @media (prefers-reduced-motion: no-preference) {
-  html[data-water="on"] :is(.tank-statement, .tank-corner, .tank-contact label, .tank-contact button, .tank-contact p, #contact [role="status"]) {
+  html[data-element="water"][data-stage="on"] :is(.tank-statement, .tank-corner, .tank-contact label, .tank-contact button, .tank-contact p, #contact [role="status"]) {
     filter: url(#underwater);
     text-shadow: 0 0 0.6px currentColor;
   }
 
-  html[data-water="on"] .tank-contact :is(textarea, input) {
+  html[data-element="water"][data-stage="on"] .tank-contact :is(textarea, input) {
     filter: url(#underwater-field);
     text-shadow: 0 0 0.3px currentColor;
   }
@@ -367,17 +367,17 @@ html[data-keyboard] .tank-statement {
 }
 
 /* The canvas fades in once it's drawing (an undrawn WebGL canvas is black). */
-.water-canvas {
+.element-canvas {
   -webkit-tap-highlight-color: transparent;
   opacity: 0;
   transition: opacity 0.5s ease-out;
 }
 
-html[data-water="on"] .water-canvas {
+html[data-stage="on"] .element-canvas {
   opacity: 1;
 }
 
-html:not([data-water="on"]) .water-canvas {
+html:not([data-stage="on"]) .element-canvas {
   pointer-events: none;
 }
 

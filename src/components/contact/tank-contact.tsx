@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { rippleUnder, sinkIntoPool } from "@/components/brand/water/pool-events";
+import { keystrokeUnder, sinkMessage } from "@/components/brand/elements/stage-events";
 import { siteConfig } from "@/config/site";
 import { sendContact, type ContactState } from "@/lib/contact/actions";
 import { LIMITS, type FieldErrors } from "@/lib/contact/validate";
@@ -10,8 +10,9 @@ import { LIMITS, type FieldErrors } from "@/lib/contact/validate";
  * Contact, inside the tank, in two steps:
  *
  * 1. "What should your website do?" The visitor types in place; each
- *    keystroke drops a small ripple in the pool. On send, the words sink
- *    to the pool floor (or simply fade, without the pool).
+ *    keystroke reaches the background element (water: a small ripple).
+ *    On send, the element takes the words (water sinks them to the pool
+ *    floor), or they simply fade if no element is running.
  * 2. Where to reply: email, and an optional name. This submits everything
  *    to the existing sendContact server action (honeypot, rate limit and
  *    both emails unchanged).
@@ -79,7 +80,7 @@ export function TankContact() {
       return;
     }
     setMessageError(null);
-    const inPool = messageRef.current ? sinkIntoPool(messageRef.current) : false;
+    const taken = messageRef.current ? sinkMessage(messageRef.current) : false;
     setSinking(true);
     timer.current = window.setTimeout(
       () => {
@@ -87,7 +88,7 @@ export function TankContact() {
         focusStep.current = true;
         setStep("email");
       },
-      inPool ? 900 : 300,
+      taken ? 900 : 300,
     );
   };
 
@@ -121,7 +122,7 @@ export function TankContact() {
           value={message}
           onChange={(e) => {
             setMessage(e.target.value);
-            rippleUnder(e.target);
+            keystrokeUnder(e.target);
             if (messageError) setMessageError(null);
           }}
           onKeyDown={onMessageKey}
@@ -164,7 +165,7 @@ export function TankContact() {
             required
             maxLength={LIMITS.email}
             defaultValue={state.values.email}
-            onInput={(e) => rippleUnder(e.currentTarget)}
+            onInput={(e) => keystrokeUnder(e.currentTarget)}
             placeholder="you@example.com"
             aria-invalid={errors.email ? true : undefined}
             aria-describedby={errors.email ? "contact-email-error" : undefined}
@@ -187,7 +188,7 @@ export function TankContact() {
             autoComplete="name"
             maxLength={LIMITS.name}
             defaultValue={state.values.name}
-            onInput={(e) => rippleUnder(e.currentTarget)}
+            onInput={(e) => keystrokeUnder(e.currentTarget)}
             aria-invalid={errors.name ? true : undefined}
             aria-describedby={errors.name ? "contact-name-error" : undefined}
             className={`${line} h-10 text-center text-body ${errors.name ? "border-accent" : "border-line focus:border-fg/50"}`}

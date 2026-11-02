@@ -1,13 +1,13 @@
-import { UnderwaterFilters } from "@/components/brand/underwater-filters";
 import { VisibleViewport } from "@/components/brand/visible-viewport";
 import { Wordmark } from "@/components/brand/wordmark";
-import { WaterCanvas } from "@/components/brand/water/water-canvas";
+import { ElementStage } from "@/components/brand/elements/element-stage";
 import { TankContact } from "@/components/contact/tank-contact";
 import { PricingPanel } from "@/components/pricing/pricing-panel";
 import { siteConfig } from "@/config/site";
 
 /**
- * The pool: one dark screen of water that doesn't scroll. The wordmark
+ * The pool: one dark screen that doesn't scroll, over this visit's element
+ * (ElementStage; water for now). The wordmark
  * lies on the floor in the middle, with a short line just under it (on
  * the surface, not in the water); the contact form, one question at a
  * time, sits below; "info & pricing" and the email wait in the corners.
@@ -20,8 +20,7 @@ export default function HomePage() {
   return (
     <div className="tank fixed inset-x-0 top-(--vv-top,0px) h-(--vv-h,100dvh) overflow-hidden">
       <VisibleViewport />
-      <UnderwaterFilters />
-      <WaterCanvas />
+      <ElementStage />
 
       <div className="tank-content pointer-events-none relative flex h-full flex-col items-center justify-center-safe overflow-y-auto px-gutter pt-[max(1.25rem,env(safe-area-inset-top))] pb-[calc(2.75rem+env(safe-area-inset-bottom))]">
         <div className="grid shrink-0 justify-items-center gap-[clamp(0.75rem,calc(var(--vv-h,100dvh)*0.022),1.5rem)]">
