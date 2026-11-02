@@ -39,7 +39,14 @@
   --accent: var(--palette-vermilion-500);
   --accent-fg: var(--palette-ink-950);
   --accent-quiet: var(--palette-moss-400);
+  /* The wordmark's dot. Each element sets its own (below). */
+  --mark: var(--accent);
   color-scheme: dark;
+}
+
+/* Water: a deep, clear pool blue for the wordmark's dot (the Send button keeps the accent). */
+html[data-element="water"] {
+  --mark: #215f9f;
 }
 
 .theme-paper {
@@ -60,19 +67,20 @@
   color: var(--fg);
 }
 
-/* Earth visits: pale raked sand, so the page switches to dark ink. The
-   surface matches the sand, so the garden fades in seamlessly (and the
-   still version, without WebGL, still reads as sand). Text colours keep
-   at least 4.5:1 against the sand, including its shaded grooves. */
+/* Earth visits: pale raked sand, so the page switches to dark charcoal ink.
+   The surface matches the sand, so the garden fades in seamlessly (and the
+   still version, without WebGL, still reads as sand). All text is charcoal
+   (about 10:1 or more against the sand); the dot is the red stone. */
 html[data-element="earth"] {
   --surface: #ddd7cb;
   --surface-raised: #f1eee7;
-  --fg: #1b1a17;
-  --fg-muted: #4f4b44;
-  --line: color-mix(in oklab, #1b1a17 26%, transparent);
+  --fg: #1a1918;
+  --fg-muted: #262522;
+  --line: color-mix(in oklab, #1a1918 34%, transparent);
   --accent: #b2361a;
   --accent-fg: #f7f4ee;
   --accent-quiet: var(--palette-moss-700);
+  --mark: #b2361a;
   color-scheme: light;
 }
 
@@ -87,6 +95,7 @@ html[data-element="earth"] {
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-accent-quiet: var(--accent-quiet);
+  --color-mark: var(--mark);
 
   /* Fixed colours (for art direction that ignores the theme) */
   --color-ink: var(--palette-ink-900);
@@ -230,7 +239,7 @@ html[data-stage="pending"] .wordmark [data-element-accent] {
 
 @keyframes wordmark-reveal-accent {
   to {
-    color: var(--accent);
+    color: var(--mark);
   }
 }
 
@@ -345,9 +354,13 @@ html[data-element="earth"] .tank-contact .bg-accent {
   text-shadow: none;
 }
 
-html[data-element="earth"] .tank-contact ::placeholder,
 html[data-element="earth"] .tank-contact .text-fg-muted\/70 {
   color: var(--fg-muted);
+}
+
+/* Placeholders stay charcoal too, just lighter than what's typed. */
+html[data-element="earth"] .tank-contact ::placeholder {
+  color: #45423d;
 }
 
 html[data-element="earth"] .pricing-panel {

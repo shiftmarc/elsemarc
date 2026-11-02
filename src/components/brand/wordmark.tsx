@@ -17,7 +17,7 @@ export function Wordmark() {
       className="wordmark type-display pointer-events-none shrink-0 text-center leading-[0.85] tracking-[-0.045em] select-none"
     >
       {siteConfig.name}
-      <span aria-hidden="true" data-element-accent="" className="text-accent">
+      <span aria-hidden="true" data-element-accent="" className="text-mark">
         .
       </span>
     </h1>

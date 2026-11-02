@@ -13,26 +13,34 @@ export const TUNING = {
     high: [1, 0.985, 0.95] as const,
   },
 
+  /** The photographed sand (renderer.ts SAND_SOURCE): CSS px per tile, how much of its lightness and hue
+   * variation to keep (0–1), how strongly its grain catches the light, and the share of grains that glint. */
+  texture: { tile: 900, lightness: 0.6, hue: 0.35, relief: 0.3, glint: 0.025 },
+
   /** The raked garden: long lines, and rings around the stone. */
   garden: {
     /** Line spacing: a share of the screen's short side, within these limits. */
-    periodShare: 0.021,
-    period: [12, 20] as const,
-    /** Half the ridge-to-groove depth, freshly raked (× line spacing, so lines look alike at any size). */
-    amp: 0.052,
-    /** How much worn lines lose (0–1 of their depth). */
-    wornLoss: 0.5,
-    /** Rings around the stone: how many, and the gap before the first (× stone radius, + 2 px). */
-    rings: 4,
-    ringGap: 0.55,
+    periodShare: 0.034,
+    period: [17, 32] as const,
+    /** Half the ridge-to-groove depth (× line spacing, so lines look alike at any size). */
+    amp: 0.038,
+    /** How much worn patches lose (0–1 of their depth). */
+    wornLoss: 0.45,
+    /** Rings around the stone: at most this many, the gap before the first (× stone radius, + 2 px), their
+     * spacing (× line spacing, never under ringMin px), and the room they leave above the line below the word. */
+    rings: 3,
+    ringGap: 0.45,
+    ringShare: 0.55,
+    ringMin: 6,
+    ringClear: 6,
   },
 
   /** The wordmark pressed into the sand (× font size where noted). */
   word: {
-    depth: 0.03,
-    depthRange: [2, 4.2] as const,
+    depth: 0.05,
+    depthRange: [3, 7] as const,
     /** Sand pushed up around the letters. */
-    rim: 0.8,
+    rim: 1,
     /** Edge softness of the letters and of the rim (blur widths, × font size). */
     bevel: 0.011,
     bevelMin: 0.55,
@@ -53,9 +61,6 @@ export const TUNING = {
     shadow: 0.6,
     vignette: 0.16,
   },
-
-  /** Fine grains: size, bumpiness, and the share of glassy grains that glint. */
-  grain: { size: 0.72, relief: 0.09, glint: 0.006 },
 
   /** Dragging rakes grooves: tines and their spacing (× line spacing), depth, and the sand heaped beside them. */
   rake: { tines: 5, spacing: 1.05, depth: 3.2, berm: 1.8, step: 2 },
@@ -85,9 +90,6 @@ export const TUNING = {
     /** Softening (blur), in cells² per second, in still air and in wind. */
     blurCalm: 0.015,
     blurWindy: 0.06,
-    /** How fast the wind wears the raked lines (per second, at full wind), and the most it wears them. */
-    wear: 1 / 160,
-    maxWear: 0.9,
   },
 
   /** The wind never quite stops: a breeze while the visitor is busy, gusts once they're idle. */
@@ -107,9 +109,6 @@ export const TUNING = {
     grainLife: [1.2, 2.6] as const,
     grainSpeed: [35, 75] as const,
   },
-
-  /** The invisible rake: lines per pass, speed, the sand heaped ahead of its tines, grains flicked per second. */
-  gardener: { lines: 7, speed: 70, heap: 0.45, flick: 5 },
 
   /** The sent message: pressed in, held, then erased by the wind. */
   message: {

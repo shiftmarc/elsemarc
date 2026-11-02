@@ -83,7 +83,8 @@ export class WaterScene implements ElementScene {
     this.renderer.setColors({
       base: readColor(root.getPropertyValue("--surface"), [0.094, 0.094, 0.086]),
       color: readColor(root.getPropertyValue("--fg"), [0.957, 0.945, 0.918]),
-      accent: readColor(root.getPropertyValue("--accent"), [0.894, 0.314, 0.169]),
+      // The wordmark's dot: each element has its own (globals.css, --mark).
+      accent: readColor(root.getPropertyValue("--mark"), [0.129, 0.373, 0.624]),
     });
 
     this.resizer = new ResizeObserver(() => {

@@ -4,18 +4,16 @@ import { GardenRenderer, SPRITE_FLOATS, type Op, type Rect } from "./renderer";
 import { TUNING } from "./tuning";
 
 /**
- * Earth: a zen garden. Pale sand seen from above in bright, low daylight,
- * raked in long lines by hand, with the wordmark stamped into it and its
- * accent a smooth stone with rings raked around it. The page switches to
- * its light palette for it (globals.css).
+ * Earth: a zen garden. Pale sand (a photographed texture) seen from above
+ * in bright, low daylight, raked in long lines by hand, with the wordmark
+ * pressed deep into it and its accent a smooth stone with a few rings raked
+ * around it. The page switches to its light palette for it (globals.css).
  *
  * Dragging rakes deep grooves that slowly settle back; a tap leaves a
  * crater and throws grains; each keystroke drops a pebble that leaves a
  * dent; a sent message is pressed into the sand, then the wind erases it.
  * It never stands still: a breeze (gusting once the visitor is idle) sends
- * streamers of fine sand snaking across with grains skittering along, and
- * wears the lines down; an invisible rake slowly redraws them, one pass at
- * a time.
+ * streamers of fine sand snaking across, with grains skittering along.
  *
  * The stage (../stage.ts) runs the clock and hands over the visitor's input.
  */
@@ -174,9 +172,6 @@ export class EarthScene implements ElementScene {
   private windLevel: number = W.breeze;
   private nextSkitter = 0;
 
-  /** The invisible rake: which band of lines it's redrawing, which way, and where it is. */
-  private gardener = { band: -1, bands: 1, dir: 1, x: 0, flick: 0 };
-
   private message: { start: number } | null = null;
 
   private resizer: ResizeObserver;
@@ -189,12 +184,12 @@ export class EarthScene implements ElementScene {
     this.renderer = new GardenRenderer(gl);
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, TUNING.render.maxPixelRatio);
 
-    // The sand is the garden's own; the stone takes the page's accent.
+    // The sand is the garden's own; the stone is the wordmark's dot (--mark).
     const root = getComputedStyle(document.documentElement);
     this.renderer.setColors({
       sand: TUNING.palette.sand,
       high: TUNING.palette.high,
-      accent: readColor(root.getPropertyValue("--accent"), [0.72, 0.22, 0.1]),
+      accent: readColor(root.getPropertyValue("--mark"), [0.7, 0.21, 0.1]),
     });
 
     this.resizer = new ResizeObserver(() => {
@@ -221,7 +216,7 @@ export class EarthScene implements ElementScene {
       console.warn("[earth] WebGL setup failed", error);
       return null;
     }
-    await loadFont(h1);
+    await Promise.all([loadFont(h1), scene.renderer.loadSand()]);
     try {
       if (!scene.layout()) {
         scene.dispose();
@@ -265,13 +260,22 @@ export class EarthScene implements ElementScene {
     this.renderer.setWord(drawMask(word, rect, scale, "word"), rect, scale, [bevel, rimSpread, stoneBlur]);
 
     // The rings go round the stone (the accent) only; without one, a small circle at the word's centre.
+    // They stay clear of the line under the wordmark: fewer, closer rings if there's little room.
     const hasStone = word.glyphs.some((glyph) => glyph.accent);
     const s = hasStone ? inkBounds(word, true) : b;
     const radius = hasStone ? Math.max(s.right - s.left, s.bottom - s.top) / 2 + stoneBlur : fs * 0.1;
+    const cy = (s.top + s.bottom) / 2;
+    const margin = radius * g.ringGap + 2;
+    const room = this.roomBelow(cy) - radius - margin;
+    let rings: number = g.rings;
+    let ringPeriod = Math.min(this.period * g.ringShare, room / (rings + 0.4));
+    while (rings > 1 && ringPeriod < g.ringMin) ringPeriod = Math.min(this.period * g.ringShare, room / (--rings + 0.4));
+    ringPeriod = Math.max(ringPeriod, g.ringMin);
     this.renderer.setGarden({
-      stone: [(s.left + s.right) / 2, (s.top + s.bottom) / 2, radius],
-      margin: radius * g.ringGap + 2,
-      rings: g.rings,
+      stone: [(s.left + s.right) / 2, cy, radius],
+      margin,
+      rings,
+      ringPeriod,
       period: this.period,
       amp: g.amp * this.period,
       depth: Math.min(w.depthRange[1], Math.max(w.depthRange[0], fs * w.depth)),
@@ -280,13 +284,21 @@ export class EarthScene implements ElementScene {
     });
     // A new garden: its lines worn unevenly, so the invisible rake's fresh passes show.
     if (this.renderer.fresh) {
-      this.ops.push({ kind: "wear", level: 0.62, spread: 0.3, scale: 300 });
+      this.ops.push({ kind: "wear", level: 0.45, spread: 0.45, scale: 260 });
       this.renderer.fresh = false;
     }
-    this.gardener.bands = Math.max(1, Math.ceil(height / (TUNING.gardener.lines * this.period)));
     this.drawnAt = this.h1Position();
     this.canvas.dataset.garden = `${Math.round(width * ratio)}×${Math.round(height * ratio)}`;
     return true;
+  }
+
+  /** How far below `y` (canvas px) the line under the wordmark starts, if it's showing. */
+  private roomBelow(y: number) {
+    const statement = document.querySelector<HTMLElement>(".tank-statement");
+    const box = statement?.getBoundingClientRect();
+    const canvas = this.canvas.getBoundingClientRect();
+    if (!box || box.height === 0) return Infinity;
+    return box.top - canvas.top - y - TUNING.garden.ringClear;
   }
 
   private h1Position(): [number, number] {
@@ -454,41 +466,6 @@ export class EarthScene implements ElementScene {
     }
   }
 
-  /** The invisible rake moves on along its band, redrawing the lines behind it; then the next band, the other way. */
-  private tend(dt: number) {
-    const gd = TUNING.gardener;
-    const g = this.gardener;
-    const width = this.size[0];
-    const bandH = gd.lines * this.period;
-    if (g.band < 0 || g.x < -40 || g.x > width + 40) {
-      g.band = g.band < 0 ? Math.floor(Math.random() * g.bands) : (g.band + 1) % g.bands;
-      g.dir = g.band % 2 === 0 ? 1 : -1;
-      g.x = g.dir > 0 ? -30 : width + 30;
-    }
-    // A message being erased is left to the wind.
-    if (this.message) return;
-    const y = (g.band + 0.5) * bandH;
-    const x = g.x + g.dir * gd.speed * Math.min(dt, 0.1);
-    this.ops.push({ kind: "refresh", x0: g.x, y0: y, x1: x, y1: y, half: bandH / 2, heap: gd.heap, period: this.period });
-    g.x = x;
-    // Now and then a grain flicks up off its tines.
-    g.flick += dt * gd.flick;
-    while (g.flick >= 1) {
-      g.flick -= 1;
-      const v = between([25, 60]);
-      const a = (Math.random() - 0.5) * 0.9;
-      this.spawn({
-        x: x + g.dir * 3,
-        y: y + (Math.random() - 0.5) * bandH,
-        z: 0.5,
-        vx: g.dir * v * Math.cos(a),
-        vy: v * Math.sin(a),
-        vz: between([40, 90]),
-        size: 1 + Math.random() * 0.7,
-      });
-    }
-  }
-
   /** Flying grains fall, land, rest and fade; pebbles dent the sand where they land, then sink; skittering grains hop along. */
   private updateSprites(dt: number) {
     const gr = TUNING.grains;
@@ -580,7 +557,6 @@ export class EarthScene implements ElementScene {
       this.skitter();
       this.nextSkitter = time + between(W.grainGap) / Math.max(wind, 0.1);
     }
-    this.tend(dt);
 
     const count = this.updateSprites(dt);
     if (this.ops.length) {
@@ -591,7 +567,6 @@ export class EarthScene implements ElementScene {
     this.renderer.settle(dt, msg.erode);
     this.renderer.render(time, msg.press, this.spriteData, count);
     this.canvas.dataset.wind = wind.toFixed(2);
-    this.canvas.dataset.gardener = `${this.gardener.band}:${Math.round(this.gardener.x)}`;
 
     this.monitor(dt * 1000);
   }

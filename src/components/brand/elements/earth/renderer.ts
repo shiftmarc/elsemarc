@@ -4,19 +4,34 @@ import { TUNING } from "./tuning";
 /**
  * The garden on the GPU (WebGL2):
  *
- * - The raked garden itself is drawn analytically at full resolution:
- *   straight lines, rings around the stone, the letters pressed in (from a
- *   blurred mask of the word), the accent as a stone, and snaking streamers
- *   of fine sand blown across it.
+ * - The sand itself is a photographed texture (its grain, colour and
+ *   glints; see SAND_SOURCE), sampled twice at different scales and angles
+ *   so it doesn't visibly repeat.
+ * - On it, the raked garden is drawn analytically at full resolution: long
+ *   hand-raked lines, rings around the stone, the letters pressed in (from
+ *   a blurred mask of the word), the accent as a stone, and snaking
+ *   streamers of fine sand blown across it.
  * - Everything that changes lives in a state field: R = height change
  *   (rakes, craters, dents), G = how much of the pressed message survives,
- *   B = how worn the raked lines are. Disturbances settle back to zero; the
- *   wind wears the lines, and the invisible rake makes them fresh again.
+ *   B = how worn the raked lines are (patchy, set once). Disturbances
+ *   settle back to zero.
  * - Flying grains and pebbles are point sprites drawn on top, with shadows.
  *
  * Coordinates are CSS px from the canvas's top-left, y down, throughout;
  * heights are CSS px too.
  */
+
+/**
+ * The sand texture: "Dense Sand" by Dimitrios Savva, Poly Haven
+ * (https://polyhaven.com/a/dense_sand), CC0 1.0. The 1K diffuse and OpenGL
+ * normal maps, re-encoded at 1024² (public/elements/earth/SOURCE.txt).
+ */
+export const SAND_SOURCE = {
+  color: "/elements/earth/sand-color.jpg",
+  normal: "/elements/earth/sand-normal.jpg",
+  /** The colour map's mean (sRGB 0–1): its variation is taken relative to this. */
+  mean: [0.5774, 0.5034, 0.3898],
+} as const;
 
 /** The sand's colour, its brightest highlights, and the stone's (the page accent). */
 export type Colors = { sand: readonly number[]; high: readonly number[]; accent: readonly number[] };
@@ -26,16 +41,16 @@ export type Op =
   | { kind: "rake"; x0: number; y0: number; x1: number; y1: number; half: number; depth: number; berm: number }
   | { kind: "crater"; x: number; y: number; radius: number; depth: number; rim: number; flatten: number }
   | { kind: "stamp"; rect: Rect }
-  /** The invisible rake's tines moving from (x0, y0) to (x1, y1): fresh lines behind, a little sand heaped ahead. */
-  | { kind: "refresh"; x0: number; y0: number; x1: number; y1: number; half: number; heap: number; period: number }
   /** Sets how worn the lines are everywhere: around `level`, varying by `spread` over patches of `scale` px. */
   | { kind: "wear"; level: number; spread: number; scale: number };
 
 export type Garden = {
   /** The stone: centre and radius (the rings are around it). */
   stone: [number, number, number];
+  /** The rings: the gap before the first, how many, and their spacing. */
   margin: number;
   rings: number;
+  ringPeriod: number;
   period: number;
   amp: number;
   depth: number;
@@ -111,39 +126,36 @@ float wordHeight(vec4 w) {
   return w.b > 0.2 ? max(h, stoneHeight(w.b)) : h;
 }
 
-// Raked lines, and rings around the stone; worn lines are shallower. Drawn by hand, they're
-// never quite even: the lines wander a little, ridges rise and fall along their length, and
-// the tines leave fine streaks.
+// Raked lines, and rings around the stone; worn patches are shallower. Drawn by hand, they're
+// never quite even: the lines wander and drift a little closer or further apart, and the ridges
+// rise and fall along their length.
 //
-// The slow, smooth part of that (how the lines wander, how high the ridges are) changes too
-// little between neighbouring pixels to matter for their slopes, so it's worked out once per
-// pixel: x = wander, y = ridge height, z = the phase of the tines' streaks.
+// That part changes too little between neighbouring pixels to matter for their slopes, so it's
+// worked out once per pixel: x = wander, y = ridge height.
 vec3 handOf(vec2 p) {
   float period = uRake.x;
-  float wander = (noise(p * vec2(1.0 / 280.0, 1.0 / 520.0)) - 0.5) * 0.7 * period
-    + (noise(p * vec2(1.0 / 90.0, 1.0 / 240.0) + 31.0) - 0.5) * 0.16 * period;
-  float vary = 0.75 + 0.5 * noise(vec2(p.x / 120.0, (p.y + wander) / period * 0.9 + 0.5));
-  // The tines' fine streaks drift in and out of step along the lines.
-  float phase = noise(p * vec2(1.0 / 70.0, 1.0 / 30.0) + 5.0) * 12.566;
-  return vec3(wander, vary, phase);
+  float wander = (noise(p * vec2(1.0 / 300.0, 1.0 / 420.0)) - 0.5) * 1.1 * period
+    + (noise(p * vec2(1.0 / 110.0, 1.0 / 160.0) + 31.0) - 0.5) * 0.3 * period;
+  float vary = 0.5 + 0.75 * noise(vec2(p.x / 140.0, (p.y + wander) / period * 0.9 + 0.5));
+  return vec3(wander, vary, 0.0);
 }
 
 float rake(vec2 p, float wear, vec3 hand) {
   float period = uRake.x;
+  float rp = uRing.x;
   float wander = hand.x;
   float r = length(p - uStone.xy - uShift) - uStone.z;
   float margin = uRing.y;
-  float zone = margin + uRing.z * period;
-  float ring = cos(6.2831853 * (r - margin + 0.4 * wander) / period);
+  float zone = margin + uRing.z * rp;
+  float ring = cos(6.2831853 * (r - margin + 0.25 * wander * rp / period) / rp);
   float y = p.y + wander;
   float line = cos(6.2831853 * y / period);
-  float straight = smoothstep(zone - 0.15 * period, zone + 0.15 * period, r);
+  float straight = smoothstep(zone - 0.2 * rp, zone + 0.35 * rp, r);
   float g = mix(ring, line, straight);
-  // Rounded ridges, broad soft troughs.
-  g = g > 0.0 ? pow(g, 0.8) : -pow(-g, 1.25);
-  float inner = smoothstep(margin - 0.6 * period, margin + 0.1 * period, r);
-  float streak = (sin(y * 3.7 + hand.z) + sin(y * 2.3 - 1.7 * hand.z)) * 0.07 * straight;
-  return (uRake.y * g * hand.y + streak) * inner * (1.0 - uRake.z * wear);
+  // The rings are closer together than the lines, so shallower in step (the same gentle slopes).
+  float amp = uRake.y * mix(rp / period, hand.y, straight);
+  float inner = smoothstep(margin - 0.6 * rp, margin + 0.1 * rp, r);
+  return amp * g * inner * (1.0 - uRake.z * wear);
 }
 
 float garden(vec2 p, float wear, vec3 hand, out vec4 w) {
@@ -174,45 +186,30 @@ void main() {
   float d = s.r;
   float keep = s.g;
   float wear = s.b;
-  // Only the visitor's rakes and craters replace the garden's own shape (the invisible rake, every frame, doesn't).
+  // Only the visitor's rakes and craters replace the garden's own shape.
   vec4 w;
   float base = uNeedBase ? garden(p, wear, handOf(p), w) : 0.0;
   for (int i = 0; i < ${MAX_OPS}; i++) {
     if (i >= uOpCount) break;
     vec4 a = uOpA[i];
     vec4 b = uOpB[i];
-    if (b.x < 0.5 || (b.x > 2.5 && b.x < 3.5)) {
-      // Along a segment from a.xy to a.zw: t along it, across it.
+    if (b.x < 0.5) {
+      // The visitor's rake, from a.xy to a.zw: deep tine grooves, the sand they move heaped up on both sides.
       vec2 ab = a.zw - a.xy;
       float len = max(length(ab), 1e-3);
       vec2 dir = ab / len;
       vec2 q = p - a.xy;
       float t = dot(q, dir);
       float across = dot(q, vec2(-dir.y, dir.x));
-      if (b.x < 0.5) {
-        // The visitor's rake: deep tine grooves, the sand they move heaped up on both sides.
-        float along = smoothstep(-1.0, 0.5, t) * (1.0 - smoothstep(len - 0.5, len + 1.0, t));
-        float inside = along * (1.0 - smoothstep(b.y - 1.2, b.y + 0.6, abs(across)));
-        float spacing = 2.0 * b.y / ${TUNING.rake.tines.toFixed(1)};
-        float g = 0.5 + 0.5 * cos(6.2831853 * across / spacing);
-        float groove = b.z * (0.4 - pow(g, 0.55));
-        d = mix(d, groove - base, inside);
-        float k = (abs(across) - b.y - 2.2) / 2.6;
-        d = max(d, b.w * exp(-k * k) * along);
-        keep *= 1.0 - inside;
-      } else {
-        // The invisible rake: fresh lines behind its tines, a little sand pushed ahead of each.
-        // Its passes overlap a little, unevenly, and its front isn't quite square, so they blend in.
-        float reach = b.y + (noise(vec2(p.x / 90.0, sign(across) * 7.0)) - 0.5) * 1.4 * b.w;
-        float band = 1.0 - smoothstep(reach - 0.9 * b.w, reach + 0.9 * b.w, abs(across));
-        t += (noise(vec2(p.y / 35.0, 3.0)) - 0.5) * 8.0;
-        float along = smoothstep(-1.0, 0.5, t) * (1.0 - smoothstep(len - 0.5, len + 0.5, t));
-        float fresh = along * band;
-        d = mix(d, 0.0, fresh);
-        wear = mix(wear, 0.0, fresh);
-        float ahead = exp(-pow((t - len - 2.5) / 2.0, 2.0)) * band;
-        d = max(d, b.z * ahead * (0.55 + 0.45 * cos(6.2831853 * across / b.w)));
-      }
+      float along = smoothstep(-1.0, 0.5, t) * (1.0 - smoothstep(len - 0.5, len + 1.0, t));
+      float inside = along * (1.0 - smoothstep(b.y - 1.2, b.y + 0.6, abs(across)));
+      float spacing = 2.0 * b.y / ${TUNING.rake.tines.toFixed(1)};
+      float g = 0.5 + 0.5 * cos(6.2831853 * across / spacing);
+      float groove = b.z * (0.4 - pow(g, 0.55));
+      d = mix(d, groove - base, inside);
+      float k = (abs(across) - b.y - 2.2) / 2.6;
+      d = max(d, b.w * exp(-k * k) * along);
+      keep *= 1.0 - inside;
     } else if (b.x < 1.5) {
       // A crater (or a pebble's dent): a smooth bowl, and a rim of the sand pushed out.
       float r = length(p - a.xy) / a.z;
@@ -240,7 +237,6 @@ uniform vec2 uSimSize;
 uniform vec2 uCell;
 uniform float uDt;
 uniform vec4 uSettle;
-uniform vec2 uWear;
 uniform float uErode;
 ${GARDEN}
 out vec4 outColor;
@@ -258,10 +254,9 @@ void main() {
   float blur = min(mix(uSettle.z, uSettle.w, windy) * uDt, 0.2);
   float d = (here.r + blur * lap.r) * exp(-uDt / mix(uSettle.x, uSettle.y, windy));
   float keep = here.g + blur * 0.5 * lap.g;
-  // The wind erases a pressed message unevenly, gust by gust, and wears the raked lines down.
+  // The wind erases a pressed message unevenly, gust by gust.
   keep -= uDt * uErode * (0.3 + 1.4 * g * g);
-  float wear = min(here.b + uDt * uWear.x * uWind.z * (0.3 + 1.4 * g), max(here.b, uWear.y));
-  outColor = vec4(d, clamp(keep, 0.0, 1.0), wear, 1.0);
+  outColor = vec4(d, clamp(keep, 0.0, 1.0), here.b, 1.0);
 }`;
 
 // Smooth-filterable copies of the state: slopes of the disturbances (d/dx, d/dy, y down), height,
@@ -337,7 +332,11 @@ uniform vec2 uSimSize;
 uniform vec3 uLight;
 uniform vec4 uShade;
 uniform vec2 uShadow;
-uniform vec3 uGrain;
+uniform sampler2D uDetail;
+uniform sampler2D uNormal;
+uniform vec4 uTex;
+uniform vec3 uTexMean;
+uniform float uGlint;
 uniform vec3 uSand;
 uniform vec3 uHigh;
 uniform vec3 uAccent;
@@ -371,20 +370,9 @@ vec4 smoothSample(sampler2D t, vec2 uv, vec2 size) {
        + g1.y * (g0.x * texture(t, vec2(h0.x, h1.y)) + g1.x * texture(t, h1));
 }
 
-// Value noise and its slope, from one set of four hashes.
-vec3 noiseD(vec2 p) {
-  vec2 fl = floor(p);
-  ivec2 i = ivec2(fl);
-  vec2 f = p - fl;
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  vec2 du = 6.0 * f * (1.0 - f);
-  float a = hash(i);
-  float b = hash(i + ivec2(1, 0));
-  float c = hash(i + ivec2(0, 1));
-  float d = hash(i + ivec2(1, 1));
-  float k = a - b - c + d;
-  return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
-}
+// The photographed sand at two scales and angles, so its tiles never line up: x = the first's uv,
+// y = the second's, and its rotation (to bring its normals back to the screen).
+const mat2 TWIST = mat2(0.8, 0.6, -0.6, 0.8);
 
 vec2 simUv(vec2 p) {
   return vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
@@ -426,12 +414,18 @@ void main() {
   float bh = blown * ${W.streamerHeight.toFixed(2)};
   vec2 slope = vec2(hx - h0, hy - h0) / e + dist.xy + vec2(dFdx(bh), -dFdy(bh)) / e;
 
-  // Fine grains, smoothed away where the sand is pressed flat.
+  // The sand's own grain (from the photograph), smoothed away where it's pressed flat.
   float packed = max(w.r, pressed);
   float stone = smoothstep(0.18, 0.3, w.b);
-  float grainy = (1.0 - 0.8 * packed) * (1.0 - stone);
-  vec2 gp = p / uGrain.x;
-  slope += noiseD(gp).yz * (0.7 / uGrain.x) * uGrain.y * grainy;
+  float grainy = (1.0 - 0.75 * packed) * (1.0 - stone);
+  vec2 uvA = p / uTex.x;
+  vec2 uvB = TWIST * p / (uTex.x * 1.37) + 0.37;
+  vec3 tnA = texture(uNormal, uvA).xyz * 2.0 - 1.0;
+  vec3 tnB = texture(uNormal, uvB).xyz * 2.0 - 1.0;
+  // OpenGL normal maps point +y up the image; p.y counts down. The second sample turns back by TWIST.
+  vec2 gA = vec2(-tnA.x, tnA.y) / max(tnA.z, 0.3);
+  vec2 gB = (vec2(-tnB.x, tnB.y) / max(tnB.z, 0.3)) * TWIST;
+  slope += (gA * 0.6 + gB * 0.4) * uTex.w * grainy;
 
   vec3 n = normalize(vec3(-slope * uShade.z, 1.0));
   float facing = dot(n, uLight);
@@ -449,12 +443,14 @@ void main() {
   }
   float shadow = 1.0 - uShadow.x * smoothstep(0.0, 0.9, block) * (1.0 - stone * 0.6);
 
-  // Pale sand, each grain a little different and the whole faintly mottled; pressed sand is
-  // packed a shade darker, blown sand is finer and paler, the stone is the accent.
-  ivec2 cell = ivec2(floor(gp));
-  float speck = hash(cell);
-  float mottle = noise(p / 90.0);
-  vec3 sand = uSand * (0.95 + 0.1 * speck) * (0.96 + 0.08 * mottle) * (1.0 - 0.17 * w.r - 0.06 * pressed);
+  // Pale sand, its colour varying as the photograph's does around its mean: lightness by uTex.y,
+  // hue by uTex.z. Pressed sand is packed a shade darker, blown sand is finer and paler, the stone
+  // is the accent.
+  vec3 tex = (texture(uDetail, uvA).rgb * 0.6 + texture(uDetail, uvB).rgb * 0.4) / uTexMean;
+  float lum = dot(tex, vec3(0.2126, 0.7152, 0.0722));
+  vec3 hue = tex / max(lum, 0.05);
+  vec3 sand = uSand * (1.0 + (lum - 1.0) * uTex.y) * mix(vec3(1.0), hue, uTex.z);
+  sand *= 1.0 - (0.24 * w.r + 0.06 * pressed) * (1.0 - stone);
   sand = mix(sand, uHigh * 0.97, 0.18 * min(blown, 1.0));
   vec3 albedo = mix(sand, uAccent * 0.9, stone);
 
@@ -467,8 +463,10 @@ void main() {
   // Sheen on packed sand and the polished stone; rare glassy grains glint.
   vec3 halfway = normalize(uLight + vec3(0.0, 0.0, 1.0));
   float spec = pow(max(dot(n, halfway), 0.0), mix(30.0, 70.0, stone)) * mix(0.04 * packed, 0.5, stone);
-  float glint = step(1.0 - uGrain.z, hash(cell + ivec2(91, 17))) * smoothstep(0.35, 0.75, facing) * grainy;
-  col += uHigh * (spec + glint * 0.12) * shadow;
+  // Tiny glints: a few of the photograph's grains, where they face the sun.
+  ivec2 grain = ivec2(floor(uvA * 1024.0));
+  float glint = step(1.0 - uGlint, hash(grain)) * smoothstep(1.02, 1.12, lum) * smoothstep(0.4, 0.8, facing) * grainy;
+  col += uHigh * (spec + glint * 0.35) * shadow;
 
   // The blown sand catches the light as it travels: a fine, moving shimmer along the streamers.
   vec2 d = uWind.xy;
@@ -559,6 +557,8 @@ export class GardenRenderer {
   private wordRect: Rect = { x: 0, y: 0, w: 1, h: 1 };
   private messageRect: Rect = { x: 0, y: 0, w: 1, h: 1 };
   private black: WebGLTexture;
+  private detail: WebGLTexture;
+  private normal: WebGLTexture;
 
   private colors: Colors = { sand: TUNING.palette.sand, high: TUNING.palette.high, accent: [0.8, 0.25, 0.12] };
   private garden: Garden | null = null;
@@ -593,6 +593,9 @@ export class GardenRenderer {
     this.spriteP = new Program(gl, SPRITE, SPRITE_VERT);
     this.black = makeTexture(gl);
     upload(gl, this.black, null);
+    // Until (or unless) the photographs load: plain sand, flat.
+    this.detail = this.sandTexture(new Uint8Array(SAND_SOURCE.mean.map((c) => Math.round(c * 255)).concat(255)));
+    this.normal = this.sandTexture(new Uint8Array([128, 128, 255, 255]));
 
     this.spriteVao = gl.createVertexArray()!;
     this.spriteBuffer = gl.createBuffer()!;
@@ -612,6 +615,43 @@ export class GardenRenderer {
 
   setColors(colors: Colors) {
     this.colors = colors;
+  }
+
+  /** Loads the photographed sand (resolves either way: without it, the sand is plain). */
+  async loadSand() {
+    const load = async (url: string) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.src = url;
+      await img.decode();
+      return img;
+    };
+    try {
+      const [color, normal] = await Promise.all([load(SAND_SOURCE.color), load(SAND_SOURCE.normal)]);
+      if (this.gl.isContextLost()) return;
+      this.gl.deleteTexture(this.detail);
+      this.gl.deleteTexture(this.normal);
+      this.detail = this.sandTexture(color);
+      this.normal = this.sandTexture(normal);
+    } catch (error) {
+      console.warn("[earth] Sand texture unavailable", error);
+    }
+  }
+
+  /** A repeating, mipmapped texture from an image (or a single texel). */
+  private sandTexture(source: TexImageSource | Uint8Array) {
+    const gl = this.gl;
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    if (source instanceof Uint8Array) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return tex;
   }
 
   /** Sizes the canvas and the state field, keeping what's already there. */
@@ -677,7 +717,7 @@ export class GardenRenderer {
     this.wind = { level, time };
   }
 
-  /** Rakes, craters, dents, message stamps, fresh lines. */
+  /** Rakes, craters, dents, message stamps, the lines' wear. */
   disturb(ops: Op[]) {
     const gl = this.gl;
     for (let start = 0; start < ops.length; start += MAX_OPS) {
@@ -712,7 +752,6 @@ export class GardenRenderer {
     this.gardenUniforms(p, 1);
     gl.uniform1f(p.u("uDt"), this.settleDt);
     gl.uniform4f(p.u("uSettle"), s.calm, s.windy, s.blurCalm, s.blurWindy);
-    gl.uniform2f(p.u("uWear"), s.wear, s.maxWear);
     gl.uniform1f(p.u("uErode"), erode);
     this.draw();
     this.state.reverse();
@@ -747,6 +786,14 @@ export class GardenRenderer {
     gl.uniform1i(p.u("uMessage"), 2);
     this.bind(3, this.aux!.tex);
     gl.uniform1i(p.u("uAux"), 3);
+    this.bind(4, this.detail);
+    gl.uniform1i(p.u("uDetail"), 4);
+    this.bind(5, this.normal);
+    gl.uniform1i(p.u("uNormal"), 5);
+    const tx = TUNING.texture;
+    gl.uniform4f(p.u("uTex"), tx.tile, tx.lightness, tx.hue, tx.relief);
+    gl.uniform3fv(p.u("uTexMean"), SAND_SOURCE.mean as unknown as number[]);
+    gl.uniform1f(p.u("uGlint"), tx.glint);
     const mr = this.messageRect;
     gl.uniform4f(p.u("uMessageRect"), mr.x, mr.y, mr.w, mr.h);
     const m = TUNING.message;
@@ -758,8 +805,6 @@ export class GardenRenderer {
     const l = TUNING.light;
     gl.uniform4f(p.u("uShade"), l.ambient, l.sun, l.relief, 0);
     gl.uniform2f(p.u("uShadow"), l.shadow, 0);
-    const gr = TUNING.grain;
-    gl.uniform3f(p.u("uGrain"), gr.size, gr.relief, gr.glint);
     gl.uniform3fv(p.u("uSand"), this.colors.sand as number[]);
     gl.uniform3fv(p.u("uHigh"), this.colors.high as number[]);
     gl.uniform3fv(p.u("uAccent"), this.colors.accent as number[]);
@@ -795,6 +840,8 @@ export class GardenRenderer {
     for (const t of [this.grad, this.aux, this.word, this.message]) freeTarget(gl, t);
     this.grad = this.aux = this.word = this.message = null;
     gl.deleteTexture(this.black);
+    gl.deleteTexture(this.detail);
+    gl.deleteTexture(this.normal);
     for (const p of [this.disturbP, this.settleP, this.gradientP, this.copyP, this.blurP, this.sandP, this.spriteP]) p.dispose();
     gl.deleteBuffer(this.spriteBuffer);
     gl.deleteVertexArray(this.spriteVao);
@@ -819,11 +866,6 @@ export class GardenRenderer {
         return [
           [op.rect.x, op.rect.y, op.rect.w, op.rect.h],
           [2, 0, 0, 0],
-        ];
-      case "refresh":
-        return [
-          [op.x0, op.y0, op.x1, op.y1],
-          [3, op.half, op.heap, op.period],
         ];
       case "wear":
         return [
@@ -872,7 +914,7 @@ export class GardenRenderer {
     if (!g) return;
     gl.uniform4f(p.u("uStone"), g.stone[0], g.stone[1], g.stone[2], 0);
     gl.uniform4f(p.u("uRake"), g.period, g.amp, TUNING.garden.wornLoss, 0);
-    gl.uniform4f(p.u("uRing"), 0, g.margin, g.rings, 0);
+    gl.uniform4f(p.u("uRing"), g.ringPeriod, g.margin, g.rings, 0);
     gl.uniform4f(p.u("uWordShape"), g.depth, g.rim, g.stoneHeight, 0);
   }
 
