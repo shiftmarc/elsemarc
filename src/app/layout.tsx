@@ -36,6 +36,14 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Runs before first paint: if the water wordmark is likely to run, hide the
+ * h1's glyphs now so the word doesn't flash before the water pours in.
+ * The wordmark sets "on" or "off" once it knows; CSS reveals the text
+ * after a few seconds if neither happens.
+ */
+const waterFlag = `try{if("WebGL2RenderingContext"in window&&!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.dataset.water="pending"}catch(e){}`;
+
 export const viewport: Viewport = {
   themeColor: "#181816",
 };
@@ -46,7 +54,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en-CA"
       data-scroll-behavior="smooth"
       className={`${display.variable} ${sans.variable} ${mono.variable} theme-ink antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: waterFlag }} />
+      </head>
       <body className="flex min-h-dvh flex-col">
         <a
           href="#contact"

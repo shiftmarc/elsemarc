@@ -6,7 +6,7 @@ export default function HomePage() {
   return (
     <>
       <section className="flex min-h-svh flex-col px-gutter pb-10">
-        <div className="grid flex-1 place-items-center">
+        <div className="relative grid flex-1 place-items-center">
           <Wordmark />
         </div>
         <p className="type-display text-center text-heading">{siteConfig.tagline}</p>

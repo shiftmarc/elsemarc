@@ -187,6 +187,45 @@
   }
 }
 
+/* Water wordmark ---------------------------------------------------------
+   While the water draws the word, the h1's own glyphs are transparent (it
+   still sets the size and is read by assistive tech). If the water hasn't
+   started 3s after "pending", the still text fades back. */
+html[data-water="pending"] .wordmark,
+html[data-water="pending"] .wordmark *,
+html[data-water="on"] .wordmark,
+html[data-water="on"] .wordmark * {
+  color: transparent;
+}
+
+html[data-water="pending"] .wordmark {
+  animation: wordmark-reveal 0.4s ease-out 3s forwards;
+}
+
+html[data-water="pending"] .wordmark [data-water-accent] {
+  animation: wordmark-reveal-accent 0.4s ease-out 3s forwards;
+}
+
+@keyframes wordmark-reveal {
+  to {
+    color: var(--fg);
+  }
+}
+
+@keyframes wordmark-reveal-accent {
+  to {
+    color: var(--accent);
+  }
+}
+
+.water-canvas {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html:not([data-water="on"]) .water-canvas {
+  pointer-events: none;
+}
+
 /* 5. Motion --------------------------------------------------------------- */
 @media (prefers-reduced-motion: no-preference) {
   html {
