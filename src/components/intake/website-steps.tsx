@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useRef } from "react";
+import { useRef, useState } from "react";
 import { ConceptPreview } from "@/components/concepts/concept-preview";
 import { concepts, getConcept } from "@/content/concepts";
 import {
@@ -16,7 +16,10 @@ import {
   yesNo,
   type WebsiteStepId,
 } from "@/content/intake";
+import { assetAccept, MAX_ASSET_BYTES, MAX_ASSETS, type UploadedAsset } from "@/lib/intake/brief";
 import { intakeDraft, type IntakeDraft } from "@/lib/intake/draft";
+import { formatBytes } from "@/lib/intake/summary";
+import { uploads, useUploads } from "@/lib/intake/uploads";
 import type { FieldErrors } from "@/lib/intake/validate";
 import {
   CheckboxGroup,
@@ -279,7 +282,7 @@ function BrandStep({ draft, errors }: StepProps) {
         onValue={(hasLogo) => set({ hasLogo })}
         error={errors.hasLogo}
       />
-      <AssetPicker names={w.assetNames} />
+      <AssetPicker assets={w.assets} error={errors.assets} />
       <div className="space-y-6 border-t hairline pt-8">
         <RadioGroup
           name="colours"
@@ -316,64 +319,145 @@ function BrandStep({ draft, errors }: StepProps) {
 }
 
 /**
- * A file picker for logos and brand assets. PREVIEW ONLY: files are not
- * uploaded or stored; only their names are kept in the draft so they appear
- * in the summary. Uploading arrives with stage 5b.
+ * Logos and brand assets, uploaded as soon as they are chosen to the private
+ * intake bucket (see lib/intake/uploads). Finished files are kept in the
+ * draft; removing one only takes it out of the brief.
  */
-function AssetPicker({ names }: { names: string[] }) {
+function AssetPicker({ assets, error }: { assets: UploadedAsset[]; error?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const id = useId();
+  const pending = useUploads();
+  const [problems, setProblems] = useState<string[]>([]);
+  const count = assets.length + pending.filter((item) => item.status !== "failed").length;
+  const uploading = pending.filter((item) => item.status !== "failed").length;
+  const hintId = `${fieldId("assets")}-hint`;
+  const errorId = `${fieldId("assets")}-error`;
   return (
     <div>
-      <p id={`${id}-label`} className="font-medium">
+      <p className="font-medium">
         Logo and brand assets <span className="ml-2 text-small font-normal text-fg-muted">Optional</span>
       </p>
-      <p id={`${id}-hint`} className="mt-1.5 text-small text-fg-muted">
-        Logo files, brand guidelines or photos. In this preview nothing is uploaded: only the file
-        names are noted, and you can send the files later.
+      <p id={hintId} className="mt-1.5 text-small text-fg-muted">
+        Logo files, brand guidelines or photos: images, PDF, SVG, or AI, EPS, PSD, InDesign, Figma,
+        Sketch and XD files. Up to {MAX_ASSETS} files, {MAX_ASSET_BYTES / 1024 / 1024} MB each. Files
+        are stored privately and only used for your project.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-4">
         <label
-          htmlFor={id}
-          className="inline-flex min-h-12 cursor-pointer items-center gap-3 border border-current px-5 text-small font-medium transition-colors hover:bg-fg hover:text-surface has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
+          htmlFor={fieldId("assets")}
+          className={`inline-flex min-h-12 items-center gap-3 border px-5 text-small font-medium transition-colors has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent ${
+            count >= MAX_ASSETS
+              ? "cursor-not-allowed border-line text-fg-muted"
+              : `cursor-pointer hover:bg-fg hover:text-surface ${error ? "border-accent" : "border-current"}`
+          }`}
         >
           <span aria-hidden="true">+</span>
           Choose files
           <input
             ref={inputRef}
-            id={id}
+            id={fieldId("assets")}
             type="file"
             multiple
-            accept="image/*,.pdf,.svg,.ai,.eps"
-            aria-describedby={`${id}-hint`}
+            accept={assetAccept}
+            disabled={count >= MAX_ASSETS}
+            aria-describedby={[hintId, error ? errorId : null].filter(Boolean).join(" ")}
+            aria-invalid={error ? true : undefined}
             onChange={(event) => {
-              const chosen = Array.from(event.target.files ?? [], (file) => file.name);
-              intakeDraft.updateWebsite({ assetNames: [...new Set([...names, ...chosen])].slice(0, 20) });
-              // Nothing is held: clear the input so the same file can be chosen again.
+              setProblems(uploads.add(Array.from(event.target.files ?? [])));
+              // The files are queued: clear the input so the same file can be chosen again.
               event.target.value = "";
             }}
             className="sr-only"
           />
         </label>
         <span className="text-small text-fg-muted" aria-live="polite">
-          {names.length === 0 ? "No files chosen" : `${names.length} ${names.length === 1 ? "file" : "files"} noted`}
+          {uploading > 0
+            ? `Uploading ${uploading} ${uploading === 1 ? "file" : "files"}…`
+            : assets.length === 0
+              ? "No files added"
+              : `${assets.length} ${assets.length === 1 ? "file" : "files"} uploaded`}
         </span>
       </div>
-      {names.length > 0 ? (
+      {error ? (
+        <p id={errorId} className="mt-2 flex gap-2 text-small text-accent">
+          <span aria-hidden="true">!</span>
+          {error}
+        </p>
+      ) : null}
+      {problems.length > 0 ? (
+        <ul role="alert" className="mt-3 space-y-1 text-small text-accent">
+          {problems.map((problem) => (
+            <li key={problem} className="flex gap-2">
+              <span aria-hidden="true">!</span>
+              {problem}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {assets.length + pending.length > 0 ? (
         <ul className="mt-4 border-t hairline text-small">
-          {names.map((name) => (
-            <li key={name} className="flex items-center justify-between gap-4 border-b hairline py-2.5">
-              <span className="min-w-0 truncate">{name}</span>
+          {assets.map((asset) => (
+            <li key={asset.path} className="flex items-center justify-between gap-4 border-b hairline py-2.5">
+              <span className="flex min-w-0 items-baseline gap-3">
+                <span aria-hidden="true" className="text-accent">✓</span>
+                <span className="min-w-0 truncate">{asset.name}</span>
+                <span className="shrink-0 text-fg-muted">{formatBytes(asset.size)}</span>
+              </span>
               <button
                 type="button"
                 onClick={() => {
-                  intakeDraft.updateWebsite({ assetNames: names.filter((value) => value !== name) });
+                  intakeDraft.removeAsset(asset.path);
                   inputRef.current?.focus();
                 }}
                 className="shrink-0 text-fg-muted underline decoration-1 underline-offset-4 hover:text-accent"
               >
-                Remove<span className="sr-only"> {name}</span>
+                Remove<span className="sr-only"> {asset.name}</span>
               </button>
+            </li>
+          ))}
+          {pending.map((item) => (
+            <li key={item.id} className="border-b hairline py-2.5">
+              <div className="flex items-center justify-between gap-4">
+                <span className="min-w-0 truncate">{item.name}</span>
+                {item.status === "failed" ? (
+                  <span className="flex shrink-0 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => uploads.retry(item.id)}
+                      className="font-medium underline decoration-1 underline-offset-4 hover:text-accent"
+                    >
+                      Retry<span className="sr-only"> {item.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        uploads.dismiss(item.id);
+                        inputRef.current?.focus();
+                      }}
+                      className="text-fg-muted underline decoration-1 underline-offset-4 hover:text-accent"
+                    >
+                      Remove<span className="sr-only"> {item.name}</span>
+                    </button>
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-fg-muted">
+                    {item.status === "queued" ? "Waiting…" : `${Math.round(item.progress * 100)}%`}
+                  </span>
+                )}
+              </div>
+              {item.status === "failed" ? (
+                <p className="mt-1 text-accent">{item.error}</p>
+              ) : (
+                <div
+                  role="progressbar"
+                  aria-label={`Uploading ${item.name}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(item.progress * 100)}
+                  className="mt-2 h-0.5 bg-fg/15"
+                >
+                  <div className="h-full bg-accent transition-[width]" style={{ width: `${item.progress * 100}%` }} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

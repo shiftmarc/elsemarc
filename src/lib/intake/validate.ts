@@ -1,6 +1,6 @@
 import { getConcept } from "@/content/concepts";
 import { stepsFor, type IntakePath, type StepId } from "@/content/intake";
-import type { IntakeDraft } from "./draft";
+import type { IntakeDraft } from "./brief";
 
 /**
  * Validation for the project intake. Shared by the form (one step at a time)

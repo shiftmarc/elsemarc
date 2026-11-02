@@ -15,6 +15,7 @@ import {
 } from "@/content/intake";
 import { intakeDraft, useDraftReady, useIntakeDraft, type IntakeDraft } from "@/lib/intake/draft";
 import { submitIntake } from "@/lib/intake/submit";
+import { uploads, useUploads } from "@/lib/intake/uploads";
 import { validateBrief, validateStep, type FieldErrors } from "@/lib/intake/validate";
 import { CustomStep } from "./custom-steps";
 import { fieldId, RadioGroup } from "./fields";
@@ -25,6 +26,7 @@ import { WebsiteStep } from "./website-steps";
  * The project intake. Every answer is written to the intake draft as it is
  * typed, so the visitor can leave and come back to the same step. Each step
  * is validated when they continue; submission goes through submitIntake().
+ * The draft is cleared only once the server confirms the brief is saved.
  */
 
 const intros: Record<StepId, string> = {
@@ -42,6 +44,9 @@ const intros: Record<StepId, string> = {
 };
 
 const STEP_HEADING = "intake-step-heading";
+const UPLOADS_BUSY = "Wait for your files to finish uploading, or remove them.";
+
+type ReceivedBrief = { draft: IntakeDraft; path: IntakePath };
 
 /** The first step that still needs answers, or the review when none do. */
 function firstIncomplete(path: IntakePath, draft: IntakeDraft): StepId {
@@ -62,6 +67,8 @@ export function IntakeForm() {
   const draft = useIntakeDraft();
   const searchParams = useSearchParams();
   const initialised = useRef(false);
+  // The saved brief, kept for the confirmation once the draft is cleared.
+  const [received, setReceived] = useState<ReceivedBrief | null>(null);
 
   // Links from elsewhere (?design= from a demo, ?idea= from the homepage) win, then the draft decides.
   useEffect(() => {
@@ -90,7 +97,13 @@ export function IntakeForm() {
     );
   }
 
-  return draft.path ? <Steps draft={draft} path={draft.path} /> : <ChoosePath draft={draft} />;
+  if (received) return <Received {...received} onAnother={() => setReceived(null)} />;
+
+  return draft.path ? (
+    <Steps draft={draft} path={draft.path} onReceived={setReceived} />
+  ) : (
+    <ChoosePath draft={draft} />
+  );
 }
 
 /* Step 0: the path -------------------------------------------------------- */
@@ -156,9 +169,20 @@ type SubmitState =
   | { status: "editing" }
   | { status: "submitting" }
   | { status: "incomplete"; steps: StepId[] }
-  | { status: "received" };
+  | { status: "missing-files"; files: string[] }
+  | { status: "uploading" }
+  | { status: "rate-limited" }
+  | { status: "error" };
 
-function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
+function Steps({
+  draft,
+  path,
+  onReceived,
+}: {
+  draft: IntakeDraft;
+  path: IntakePath;
+  onReceived: (received: ReceivedBrief) => void;
+}) {
   const steps = stepsFor(path);
   const index = Math.max(0, steps.findIndex((step) => step.id === draft.step));
   const step = steps[index];
@@ -169,9 +193,17 @@ function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const shownStep = useRef(step.id);
+  const honeypotRef = useRef<HTMLInputElement>(null);
+  const uploading = useUploads().some((item) => item.status !== "failed");
+
+  function stepErrors(id: StepId): FieldErrors {
+    const found = validateStep(path, id, draft);
+    if (id === "brand" && uploading) found.assets = UPLOADS_BUSY;
+    return found;
+  }
 
   // Errors appear once the visitor tries to continue, then update as they fix them.
-  const errors: FieldErrors = attempted.has(step.id) ? validateStep(path, step.id, draft) : {};
+  const errors: FieldErrors = attempted.has(step.id) ? stepErrors(step.id) : {};
   const errorCount = Object.keys(errors).length;
 
   // A new step: bring its heading into view and give it focus.
@@ -189,7 +221,7 @@ function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
 
   function onContinue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const found = validateStep(path, step.id, draft);
+    const found = stepErrors(step.id);
     if (Object.keys(found).length > 0) {
       setAttempted((current) => new Set(current).add(step.id));
       requestAnimationFrame(() => summaryRef.current?.focus());
@@ -199,18 +231,31 @@ function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
   }
 
   async function onSubmitBrief() {
-    setSubmit({ status: "submitting" });
-    const result = await submitIntake(draft);
-    if (result.ok) {
-      setSubmit({ status: "received" });
-    } else {
-      setAttempted(new Set(result.incomplete.map((item) => item.step)));
-      setSubmit({ status: "incomplete", steps: result.incomplete.map((item) => item.step) });
+    if (submit.status === "submitting") return;
+    if (uploads.busy()) {
+      setSubmit({ status: "uploading" });
+      return;
     }
-  }
-
-  if (submit.status === "received") {
-    return <Received draft={draft} path={path} onBack={() => setSubmit({ status: "editing" })} />;
+    setSubmit({ status: "submitting" });
+    // Created once and kept with the draft, so a retry can never save the brief twice.
+    intakeDraft.submissionId();
+    const sent = intakeDraft.get();
+    const result = await submitIntake(sent, honeypotRef.current?.value ?? "");
+    if (result.ok) {
+      onReceived({ draft: sent, path });
+      return;
+    }
+    switch (result.reason) {
+      case "incomplete":
+        setAttempted(new Set(result.incomplete.map((item) => item.step)));
+        setSubmit({ status: "incomplete", steps: result.incomplete.map((item) => item.step) });
+        break;
+      case "missing-files":
+        setSubmit({ status: "missing-files", files: result.files });
+        break;
+      default:
+        setSubmit({ status: result.reason });
+    }
   }
 
   return (
@@ -263,7 +308,7 @@ function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
 
         <div className="mt-10">
           {isReview ? (
-            <ReviewStep draft={draft} path={path} submit={submit} onEdit={go} />
+            <ReviewStep draft={draft} path={path} submit={submit} onEdit={go} onRetry={onSubmitBrief} />
           ) : path === "website" ? (
             <WebsiteStep step={step.id as WebsiteStepId} draft={draft} errors={errors} />
           ) : (
@@ -282,11 +327,17 @@ function Steps({ draft, path }: { draft: IntakeDraft; path: IntakePath }) {
           </button>
           {isReview ? (
             <PrimaryButton type="button" onClick={onSubmitBrief} disabled={submit.status === "submitting"}>
-              {submit.status === "submitting" ? "Checking your brief…" : "Submit brief"}
+              {submit.status === "submitting" ? "Sending your brief…" : submit.status === "error" ? "Try again" : "Submit brief"}
             </PrimaryButton>
           ) : (
             <PrimaryButton>{steps[index + 1].id === "review" ? "Review your brief" : "Continue"}</PrimaryButton>
           )}
+        </div>
+
+        {/* Honeypot: hidden from people and assistive technology; a bot that fills every field gives itself away. */}
+        <div aria-hidden="true" className="absolute -left-[9999px] size-px overflow-hidden">
+          <label htmlFor="intake-hp">Leave this field empty</label>
+          <input ref={honeypotRef} id="intake-hp" name="hp_confirm" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
         </div>
       </form>
     </div>
@@ -385,19 +436,75 @@ function ReviewStep({
   path,
   submit,
   onEdit,
+  onRetry,
 }: {
   draft: IntakeDraft;
   path: IntakePath;
   submit: SubmitState;
   onEdit: (step: StepId) => void;
+  onRetry: () => void;
 }) {
   const steps = stepsFor(path);
   const alertRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (submit.status === "incomplete") alertRef.current?.focus();
-  }, [submit.status]);
+    if (submit.status !== "editing" && submit.status !== "submitting") alertRef.current?.focus();
+  }, [submit]);
+  const alertClass = "mb-10 scroll-mt-28 border-l-2 border-accent bg-accent/[0.06] px-5 py-4 outline-none";
+  const link = "underline decoration-1 underline-offset-4 hover:text-accent";
+  const email = (
+    <a href="mailto:hello@elsemarc.com" className={link}>
+      hello@elsemarc.com
+    </a>
+  );
   return (
     <div>
+      {submit.status === "error" ? (
+        <div ref={alertRef} tabIndex={-1} role="alert" className={alertClass}>
+          <p className="font-medium">Your brief couldn’t be sent</p>
+          <p className="mt-2 text-small">
+            Something went wrong while sending it. Your answers are still saved in this browser, so
+            nothing is lost.{" "}
+            <button type="button" onClick={onRetry} className={`font-medium ${link}`}>
+              Try again
+            </button>
+            , and if it keeps happening, email {email}.
+          </p>
+        </div>
+      ) : null}
+      {submit.status === "rate-limited" ? (
+        <div ref={alertRef} tabIndex={-1} role="alert" className={alertClass}>
+          <p className="font-medium">Too many briefs from this connection</p>
+          <p className="mt-2 text-small">
+            Please try again in an hour. Your answers are still saved in this browser. To reach us
+            sooner, email {email}.
+          </p>
+        </div>
+      ) : null}
+      {submit.status === "uploading" ? (
+        <div ref={alertRef} tabIndex={-1} role="alert" className={alertClass}>
+          <p className="font-medium">Your files are still uploading</p>
+          <p className="mt-2 text-small">
+            Submit again once they finish, or{" "}
+            <button type="button" onClick={() => onEdit("brand")} className={`font-medium ${link}`}>
+              check them in the brand step
+            </button>
+            .
+          </p>
+        </div>
+      ) : null}
+      {submit.status === "missing-files" ? (
+        <div ref={alertRef} tabIndex={-1} role="alert" className={alertClass}>
+          <p className="font-medium">Some uploaded files couldn’t be found</p>
+          <p className="mt-2 text-small">
+            {joinList(submit.files)} {submit.files.length === 1 ? "needs" : "need"} to be added
+            again.{" "}
+            <button type="button" onClick={() => onEdit("brand")} className={`font-medium ${link}`}>
+              Remove and re-add {submit.files.length === 1 ? "it" : "them"} in the brand step
+            </button>
+            , then submit.
+          </p>
+        </div>
+      ) : null}
       {submit.status === "incomplete" ? (
         <div
           ref={alertRef}
@@ -432,18 +539,11 @@ function ReviewStep({
 
 /* Confirmation ------------------------------------------------------------ */
 
-function Received({
-  draft,
-  path,
-  onBack,
-}: {
-  draft: IntakeDraft;
-  path: IntakePath;
-  onBack: () => void;
-}) {
-  const [confirmClear, setConfirmClear] = useState(false);
+function Received({ draft, path, onAnother }: ReceivedBrief & { onAnother: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
+    // The server has confirmed the save: only now is the draft cleared.
+    intakeDraft.reset();
     headingRef.current?.focus({ preventScroll: true });
     headingRef.current?.scrollIntoView({ block: "start" });
   }, []);
@@ -453,23 +553,23 @@ function Received({
       <div className="max-w-3xl">
         <p className="type-label flex items-center gap-2 text-accent">
           <span aria-hidden="true" className="size-1.5 bg-accent" />
-          Preview of the intake
+          Brief received
         </p>
         <h2
           ref={headingRef}
           tabIndex={-1}
           className="type-display mt-4 scroll-mt-28 text-display-md outline-none"
         >
-          Your brief is complete.
+          Thank you, {draft.contact.name.trim()}.
         </h2>
         <div role="status" className="mt-6 space-y-4 text-lede text-fg-muted">
           <p>
-            This is a preview of the intake, so your brief has <strong className="font-medium text-fg">not been sent</strong>{" "}
-            or stored anywhere yet. It is still saved only in this browser, and no one has seen it.
+            Your brief has been received. A written scope and price will follow by email to{" "}
+            <strong className="font-medium break-words text-fg">{draft.contact.email.trim()}</strong>.
           </p>
           <p>
-            When the intake goes live, this is where your brief is received and a written scope and
-            price follow by email.
+            A short confirmation is on its way to the same address. If you don’t see it, check your
+            spam folder; your brief is safely with us either way.
           </p>
         </div>
 
@@ -489,51 +589,34 @@ function Received({
             </dd>
           </div>
           <div>
-            <dt className="text-fg-muted">Contact</dt>
-            <dd className="mt-1 break-words">{draft.contact.email}</dd>
+            <dt className="text-fg-muted">{path === "website" ? "Files" : "Contact"}</dt>
+            <dd className="mt-1 break-words">
+              {path === "website"
+                ? draft.website.assets.length
+                  ? `${draft.website.assets.length} uploaded`
+                  : "None"
+                : draft.contact.email}
+            </dd>
           </div>
         </dl>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <PrimaryButton type="button" onClick={onBack}>
-            Back to your brief
-          </PrimaryButton>
           <Link
             href="/"
-            className="inline-flex min-h-12 items-center self-start text-small font-medium text-fg-muted underline sm:self-auto sm:px-5 decoration-1 underline-offset-4 hover:text-fg"
+            className="group inline-flex min-h-13 items-center justify-center gap-3 self-start bg-accent px-6 font-medium text-accent-fg transition-colors hover:bg-fg hover:text-surface"
           >
             Return home
+            <span aria-hidden="true" className="transition-transform duration-500 ease-out-expo group-hover:translate-x-1">
+              →
+            </span>
           </Link>
-        </div>
-
-        <div className="mt-12 border-t hairline pt-6 text-small text-fg-muted">
-          {confirmClear ? (
-            <p className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              Clear every answer, including choices made elsewhere on the site?
-              <button
-                type="button"
-                onClick={() => intakeDraft.reset()}
-                className="font-medium text-accent underline decoration-1 underline-offset-4"
-              >
-                Yes, clear my brief
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmClear(false)}
-                className="underline decoration-1 underline-offset-4 hover:text-fg"
-              >
-                Keep it
-              </button>
-            </p>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmClear(true)}
-              className="underline decoration-1 underline-offset-4 hover:text-fg"
-            >
-              Start a new brief
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onAnother}
+            className="inline-flex min-h-12 items-center self-start text-small font-medium text-fg-muted underline decoration-1 underline-offset-4 hover:text-fg sm:self-auto sm:px-5"
+          >
+            Start another brief
+          </button>
         </div>
       </div>
     </div>
