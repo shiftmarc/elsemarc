@@ -12,8 +12,9 @@ type VisitKeys = { elementKey: string; positionKey: string; activeKey: string };
  *   order, and when the visitor was last active.
  * - A first-ever visit (no position stored, or an unreadable one) is water.
  * - If storage is unavailable (blocked, private modes that throw), water.
- * - ?element=name overrides it all for testing, without touching storage
- *   (also #element=name; case and stray characters are ignored).
+ * - ?element=name overrides it all, without touching storage, but only for
+ *   ready elements (also #element=name; case and stray characters are
+ *   ignored). Anything else gets the rotation as usual.
  *
  * Runs before first paint as an inline script (see `elementBootScript`),
  * so it must stay self-contained: no imports or outside variables inside
@@ -31,7 +32,7 @@ export function pickElement(order: readonly string[], ready: readonly string[], 
     const inHash = /(?:^#|[#&])element=([^&]*)/i.exec(location.hash);
     if (!asked && inHash) asked = decodeURIComponent(inHash[1]);
     const name = asked.toLowerCase().replace(/[^a-z]/g, "");
-    if (name && order.indexOf(name) >= 0) return name;
+    if (name && ready.indexOf(name) >= 0) return name;
   } catch {
     // No URL to read: carry on with the rotation.
   }

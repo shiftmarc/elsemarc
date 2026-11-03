@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { FIRST_ELEMENT, type ElementName } from "./catalog";
+import { FIRST_ELEMENT, READY, type ElementName } from "./catalog";
 import type { ElementModule } from "./types";
 import { UnderwaterFilters } from "./water/underwater-filters";
 
@@ -23,8 +23,8 @@ export const ELEMENT_MODULES: Partial<Record<ElementName, Entry>> = {
   earth: { load: () => import("./earth").then((m) => m.earth) },
 };
 
-/** The element to run for `name` (from <html data-element>): itself if it has code, else water. */
+/** The element to run for `name` (from <html data-element>): itself if it's ready and has code, else water. */
 export function resolveElement(name: string | undefined): ElementName {
-  const known = name && Object.hasOwn(ELEMENT_MODULES, name) ? (name as ElementName) : null;
+  const known = name && Object.hasOwn(ELEMENT_MODULES, name) && READY[name as ElementName] ? (name as ElementName) : null;
   return known ?? FIRST_ELEMENT;
 }

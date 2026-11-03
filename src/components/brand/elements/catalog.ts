@@ -3,9 +3,9 @@
  * safe to import anywhere (the root layout reads it on the server to pick
  * the element before first paint; the stage loads the chosen one's code).
  *
- * `ready` puts an element into the rotation. An element that isn't ready
- * can still be opened with ?element=name, once it has a module in
- * registry.ts; until then that falls back to water.
+ * `ready` puts an element into the rotation and lets ?element=name open it.
+ * An element that isn't ready never runs on the site (its code isn't
+ * loaded), even if it has a module in registry.ts.
  */
 
 export const ELEMENT_ORDER = ["water", "earth", "air", "fire"] as const;

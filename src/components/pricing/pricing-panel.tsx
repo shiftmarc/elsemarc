@@ -66,7 +66,7 @@ export function PricingPanel() {
             <div className="grid gap-1">
               <dt className="type-label text-fg-muted">Websites</dt>
               <dd className="type-display text-lede text-fg">from $999 CAD</dd>
-              <dd className="text-small text-fg-muted">Designed for you, up to 5 pages, mobile-ready, 5 rounds of revisions.</dd>
+              <dd className="text-small text-fg-muted">Designed for you, up to 5 pages, mobile-ready, 10 rounds of revisions.</dd>
             </div>
             <div className="grid gap-1">
               <dt className="type-label text-fg-muted">Custom features</dt>
