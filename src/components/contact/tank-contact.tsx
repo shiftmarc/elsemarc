@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState, type KeyboardEvent } from 
 import { keystrokeUnder, sinkMessage } from "@/components/brand/elements/stage-events";
 import { siteConfig } from "@/config/site";
 import { sendContact, type ContactState } from "@/lib/contact/actions";
+import { PROMPTS, type PromptKey } from "@/lib/contact/prompts";
 import { LIMITS, type FieldErrors } from "@/lib/contact/validate";
 
 /*
@@ -13,6 +14,9 @@ import { LIMITS, type FieldErrors } from "@/lib/contact/validate";
  *    keystroke reaches the background element (water: a small ripple).
  *    On send, the element takes the words (water sinks them to the pool
  *    floor), or they simply fade if no element is running.
+ *    A quiet line under the question offers another one for visitors who
+ *    aren't sure ("Tell us about your business"), and a way back; which
+ *    question they answered is sent along as `prompt`.
  * 2. Where to reply: email, and an optional name. This submits everything
  *    to the existing sendContact server action (honeypot, rate limit and
  *    both emails unchanged).
@@ -25,6 +29,13 @@ type Step = "message" | "email";
 
 const initialState: ContactState = { status: "idle", values: { name: "", email: "", message: "", link: "" } };
 
+/** What the business question suggests telling us. */
+const BUSINESS_HINT = "What you do, who your customers are, a site you love…";
+
+/** The quiet text buttons under the question. */
+const quiet =
+  "justify-self-center px-2 py-1 text-center text-small text-balance text-fg-muted/80 underline-offset-4 transition-colors hover:text-fg hover:underline";
+
 const line =
   "block w-full border-0 border-b bg-transparent px-0 text-fg caret-accent transition-colors placeholder:text-fg-muted/60 focus:outline-none focus-visible:outline-none";
 
@@ -32,6 +43,7 @@ export function TankContact() {
   const [state, action, pending] = useActionState(sendContact, initialState);
   const [step, setStep] = useState<Step>("message");
   const [message, setMessage] = useState("");
+  const [prompt, setPrompt] = useState<PromptKey>("website");
   const [messageError, setMessageError] = useState<string | null>(null);
   const [sinking, setSinking] = useState(false);
   const messageRef = useRef<HTMLTextAreaElement>(null);
@@ -100,6 +112,13 @@ export function TankContact() {
     }
   };
 
+  /** Swaps the question (what's typed so far stays), and keeps the visitor in the field. */
+  const askAbout = (next: PromptKey) => {
+    setPrompt(next);
+    setMessageError(null);
+    messageRef.current?.focus();
+  };
+
   const editMessage = () => {
     focusStep.current = true;
     setStep("message");
@@ -109,9 +128,21 @@ export function TankContact() {
     <form ref={formRef} action={action} data-step={step} className="tank-contact relative grid gap-6">
       {/* Step 1: the message */}
       <div data-panel="message" className="grid gap-3">
-        <label htmlFor="contact-message" className="type-display text-center text-lede text-fg-muted">
-          What should your website do?
-        </label>
+        <div className="grid gap-1">
+          <label htmlFor="contact-message" className="type-display text-center text-lede text-fg-muted">
+            {PROMPTS[prompt]}
+          </label>
+          {prompt === "website" ? (
+            <button type="button" data-js-only="" onClick={() => askAbout("business")} className={quiet}>
+              Not sure? Tell us about your business, and we’ll dream it up.
+            </button>
+          ) : (
+            <button type="button" data-js-only="" onClick={() => askAbout("website")} className={quiet}>
+              <span aria-hidden="true">←</span> Back to “{PROMPTS.website}”
+            </button>
+          )}
+        </div>
+        <input type="hidden" name="prompt" value={prompt} />
         <textarea
           ref={messageRef}
           id="contact-message"
@@ -120,6 +151,7 @@ export function TankContact() {
           required
           maxLength={LIMITS.message}
           value={message}
+          placeholder={prompt === "business" ? BUSINESS_HINT : undefined}
           onChange={(e) => {
             setMessage(e.target.value);
             keystrokeUnder(e.target);

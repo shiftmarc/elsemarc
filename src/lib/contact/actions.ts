@@ -5,6 +5,7 @@ import { sendMail } from "@/lib/server/mailer";
 import { allowRequest, clientIp, hashIp, userAgent } from "@/lib/server/request";
 import { MESSAGES_TABLE, supabaseAdmin } from "@/lib/server/supabase";
 import { confirmationEmail, notificationEmail, oneLine } from "./emails";
+import { readPrompt, type PromptKey } from "./prompts";
 import { readFields, validateContact, type ContactFields, type FieldErrors } from "./validate";
 
 /*
@@ -77,18 +78,19 @@ export async function sendContact(_previous: ContactState, form: FormData): Prom
     return { status: "error", values };
   }
 
-  after(() => sendContactEmails(data.id, values, new Date(data.submitted_at)));
+  const prompt = readPrompt(form.get("prompt"));
+  after(() => sendContactEmails(data.id, values, prompt, new Date(data.submitted_at)));
   return { status: "sent" };
 }
 
-async function sendContactEmails(id: string, values: ContactFields, submittedAt: Date) {
+async function sendContactEmails(id: string, values: ContactFields, prompt: PromptKey, submittedAt: Date) {
   const name = oneLine(values.name, 100);
   const sender = name ? { name, address: values.email } : values.email;
 
   const owner = (async () => {
     const to = process.env.NOTIFY_EMAIL;
     if (!to) throw new Error("NOTIFY_EMAIL is not set.");
-    await sendMail({ to, replyTo: sender, ...notificationEmail({ id, values, submittedAt }) });
+    await sendMail({ to, replyTo: sender, ...notificationEmail({ id, values, prompt, submittedAt }) });
     return "owner_notified_at";
   })();
 
